@@ -62,6 +62,23 @@ Check auth status:
 
 ```bash
 logwork-helper auth status
+
+## API Notes
+
+- Read today bookings: `GET /member-logtime/timesheet`
+- Read default tasks: `GET /logwork/tasks/defaults?project_id=<id>`
+- Write logwork entry: `POST /logwork/entries`
+- Payload shape:
+
+```json
+{
+  "worklog_task_id": 79,
+  "type_of_work": "create",
+  "effort_hours": 1,
+  "logdate": "2026-11-05",
+  "project_id": 720,
+  "description": "SAP-37"
+}
 ```
 
 For Jira self-hosted worklogs, create a Jira Personal Access Token in Jira, then save it from Terminal:

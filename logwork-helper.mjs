@@ -13,6 +13,7 @@ import { getFreshToken, getUserIdFromJwt } from './lib/auth.mjs';
 import {
   addLogtime,
   ApiError,
+  getDefaultTasks,
   getTodayTimesheetProjects
 } from './lib/api.mjs';
 import {
@@ -78,25 +79,37 @@ try {
     outro('Commit allowed without logging work.');
   } else {
     const project = await ui.chooseProject(projects, daySummaries);
-    const taskName = await ui.chooseMessageSource(defaultMessage);
+    const tasks = await getDefaultTasks(token, project.projectId);
+    if (!tasks.length) {
+      throw new Error('Không có task mặc định cho project này.');
+    }
+    const task = await ui.chooseTask(tasks);
+    const description = await ui.chooseMessageSource(defaultMessage);
     const hours = await ui.askHours(CONFIG.defaultHours);
 
     await ui.confirmSubmit({
       projectName: project.projectName,
       hours,
-      taskName,
+      taskName: task.name,
+      description,
       localDateISO
     });
 
+    const entry = {
+      projectId: project.projectId,
+      projectMemberId: project.projectMemberId,
+      logtimes: hours,
+      taskName: task.name,
+      localDateISO,
+      worklogTaskId: task.taskId,
+      typeOfWork: task.typeOfWork,
+      description,
+      worklogNeedsProjectId: true
+    };
+
     let result;
     try {
-      result = await addLogtime(token, {
-        projectMemberId: project.projectMemberId,
-        projectId: project.projectId,
-        logtimes: hours,
-        taskName,
-        localDateISO
-      });
+      result = await addLogtime(token, entry);
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 401) {
         throw error;
@@ -112,13 +125,7 @@ try {
 
       userId = getUserIdFromJwt(token);
       ({ projects, daySummaries } = await loadProjectData(token, userId, localDateISO));
-      result = await addLogtime(token, {
-        projectMemberId: project.projectMemberId,
-        projectId: project.projectId,
-        logtimes: hours,
-        taskName,
-        localDateISO
-      });
+      result = await addLogtime(token, entry);
     }
 
     if (result?.dryRun) {
