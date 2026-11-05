@@ -1,5 +1,5 @@
 {
-  "name": "@malcohelper/logwork-helper",
+  "name": "logwork-helper",
   "version": "0.2.6",
   "description": "Local-first MCP server and terminal CLI for safe Resource Optimiser logwork automation.",
   "license": "UNLICENSED",
@@ -62,9 +62,6 @@
     "LICENSE",
     "RELEASE.md"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "bin": {
     "logwork": "manual-log.mjs",
     "logwork-helper-setup-user": "install-user.mjs",
