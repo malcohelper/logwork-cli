@@ -11,8 +11,9 @@ import {
 import { readCommitMessage } from './lib/git-message.mjs';
 import { getFreshToken, getUserIdFromJwt } from './lib/auth.mjs';
 import {
-  addLogtime,
   ApiError,
+  createLogworkEntry,
+  getDefaultTasks,
   getTodayTimesheetProjects
 } from './lib/api.mjs';
 import {
@@ -78,24 +79,34 @@ try {
     outro('Commit allowed without logging work.');
   } else {
     const project = await ui.chooseProject(projects, daySummaries);
-    const taskName = await ui.chooseMessageSource(defaultMessage);
+    const tasks = await getDefaultTasks(token, project.projectId);
+    if (!tasks.length) {
+      throw new Error('Không có task mặc định cho project này.');
+    }
+    const task = await ui.chooseTask(tasks);
+    const description = await ui.chooseMessageSource(defaultMessage);
     const hours = await ui.askHours(CONFIG.defaultHours);
 
     await ui.confirmSubmit({
       projectName: project.projectName,
       hours,
-      taskName,
+      taskName: task.name,
+      description,
       localDateISO
     });
 
+    const entry = {
+      projectId: project.projectId,
+      taskId: task.taskId,
+      typeOfWork: task.typeOfWork,
+      effortHours: hours,
+      description,
+      localDateISO
+    };
+
     let result;
     try {
-      result = await addLogtime(token, {
-        projectMemberId: project.projectMemberId,
-        logtimes: hours,
-        taskName,
-        localDateISO
-      });
+      result = await createLogworkEntry(token, entry);
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 401) {
         throw error;
@@ -111,12 +122,7 @@ try {
 
       userId = getUserIdFromJwt(token);
       ({ projects, daySummaries } = await loadProjectData(token, userId, localDateISO));
-      result = await addLogtime(token, {
-        projectMemberId: project.projectMemberId,
-        logtimes: hours,
-        taskName,
-        localDateISO
-      });
+      result = await createLogworkEntry(token, entry);
     }
 
     if (result?.dryRun) {
