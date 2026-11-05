@@ -6,17 +6,43 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CONFIG } from './config.mjs';
+import { isMainModule } from './lib/entrypoint.mjs';
+import { runManualRepl } from './lib/manual-repl.mjs';
+import { checkForUpdates, formatUpdateNotice } from './lib/update-service.mjs';
 import { safeJsonParse, nowIso } from './lib/util.mjs';
 
 const helperDir = dirname(fileURLToPath(import.meta.url));
 
 async function main() {
-  const { message, help } = parseArgs(process.argv.slice(2));
+  const { message, help, mode } = parseManualArgs(process.argv.slice(2));
   if (help) {
     printHelp();
     return;
   }
 
+  if (mode === 'repl') {
+    const updateNotice = process.stdin.isTTY && process.stdout.isTTY
+      ? await getStartupUpdateNotice()
+      : '';
+    await runManualRepl({
+      cwd: resolve(process.cwd()),
+      updateNotice
+    });
+    return;
+  }
+
+  await runQuickManual({ message });
+}
+
+export async function getStartupUpdateNotice({ checkForUpdatesFn = checkForUpdates } = {}) {
+  try {
+    return formatUpdateNotice(await checkForUpdatesFn());
+  } catch {
+    return '';
+  }
+}
+
+export async function runQuickManual({ message = '' } = {}) {
   const runDir = await fs.mkdtemp(join(tmpdir(), 'logwork-manual-'));
   const nonce = `${Date.now()}-${process.pid}-${Math.random().toString(16).slice(2)}`;
   const msgFile = join(runDir, 'COMMIT_EDITMSG');
@@ -62,7 +88,37 @@ async function main() {
     : 1;
 }
 
-function parseArgs(argv) {
+export function parseManualArgs(argv) {
+  if (argv[0] === 'quick') {
+    return {
+      ...parseQuickArgs(argv.slice(1)),
+      mode: 'quick'
+    };
+  }
+
+  if (argv.length === 0) {
+    return {
+      mode: 'repl',
+      message: '',
+      help: false
+    };
+  }
+
+  if (argv.length === 1 && (argv[0] === '--help' || argv[0] === '-h')) {
+    return {
+      mode: 'repl',
+      message: '',
+      help: true
+    };
+  }
+
+  return {
+    ...parseQuickArgs(argv),
+    mode: 'quick'
+  };
+}
+
+function parseQuickArgs(argv) {
   let message = '';
   let help = false;
   const positional = [];
@@ -133,17 +189,50 @@ async function readResult(resultFile) {
 
 function printHelp() {
   console.log(`Usage:
-  node manual-log.mjs
-  node manual-log.mjs --message "Fix login bug"
-  npm run log -- "Fix login bug"
+  logwork
+  logwork-helper manual
+  logwork-helper manual quick --message "Fix login bug"
+  logwork-helper manual quick "Fix login bug"
+
+Preferred shortcut:
+  logwork
 
 Options:
-  -m, --message <text>  Default task message
-  -h, --help            Show this help
+  -h, --help              Show this help
+
+Quick mode options:
+  -m, --message <text>    Default task message
+
+REPL commands:
+  Type / for live command suggestions.
+  /help
+  /query today
+  /query yesterday
+  /query this-week
+  /query last-week
+  /query this-month
+  /query last-month
+  /logwork
+  /logwork ro
+  /logwork jira
+  /logwork both
+  /edit-logwork 290364 --hours 0.5
+  /mcp
+  /projects
+  /projects 5234
+  /map SCB 5234
+
+Updates:
+  logwork-helper update check
+  logwork-helper update install
+
+Press Esc to exit the manual CLI.
 `);
 }
 
-main().catch((error) => {
-  console.error(error.message);
-  process.exit(1);
-});
+if (isMainModule(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error.message);
+    process.exit(1);
+  });
+}

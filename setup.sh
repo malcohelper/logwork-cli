@@ -51,10 +51,9 @@ cat <<DONE
 Logwork Helper is ready.
 
 Next steps:
-  1. Log in to Resource Optimiser in Safari.
-  2. Enable Safari: Develop -> Allow JavaScript from Apple Events.
-  3. Quit and reopen Safari once after enabling it.
-  4. Commit normally in: $(git -C "$TARGET_REPO" rev-parse --show-toplevel)
+  1. Authenticate Resource Optimiser:
+       logwork-helper auth login
+  2. Commit normally in: $(git -C "$TARGET_REPO" rev-parse --show-toplevel)
 
 Manual log:
   cd "$SCRIPT_DIR"

@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "logworkHelper": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["<path-to-mcp-server.mjs>"]
+    }
+  }
+}

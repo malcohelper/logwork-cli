@@ -1,0 +1,27 @@
+{
+  "data": [
+    {
+      "date": "2026-06-01",
+      "project_member_id": 1111,
+      "project_name": "Malformed Hours",
+      "booked_hours": "not-a-number",
+      "logged_hours": -2
+    },
+    {
+      "date": "2026-06-01",
+      "booked_hours": 2,
+      "logged_hours": 1
+    },
+    {
+      "project_member_id": 2222,
+      "booked_hours": 1
+    },
+    {
+      "date": "2026-06-01",
+      "project_member_id": 3333,
+      "project_name": "Valid Project",
+      "booked_hours": 2,
+      "logged_hours": 1
+    }
+  ]
+}

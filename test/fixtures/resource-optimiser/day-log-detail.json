@@ -1,0 +1,31 @@
+{
+  "data": [
+    {
+      "id": 1,
+      "logdate": "2026-06-01T00:00:00.000Z",
+      "project_id": 643,
+      "project_name": "2621A-SIT-HTML BUILDER-PRJ",
+      "logtimes": 1.5,
+      "task_name": "Question bank cleanup"
+    },
+    {
+      "id": 2,
+      "logdate": "2026-06-01T00:00:00.000Z",
+      "project_id": 643,
+      "logtimes": "bad-hours",
+      "task_name": "Bad hours"
+    },
+    {
+      "id": 3,
+      "logdate": "2026-06-01T00:00:00.000Z",
+      "logtimes": 1,
+      "task_name": "Missing project"
+    },
+    {
+      "id": 4,
+      "project_id": 643,
+      "logtimes": 1,
+      "task_name": "Missing date"
+    }
+  ]
+}

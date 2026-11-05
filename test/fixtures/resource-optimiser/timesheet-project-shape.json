@@ -1,0 +1,52 @@
+{
+  "data": [
+    {
+      "id": 5234,
+      "user_id": 115,
+      "project": {
+        "id": 643,
+        "name": "2621A-SIT-HTML BUILDER-PRJ",
+        "is_internal": false
+      },
+      "timesheet": [
+        {
+          "logdate": "2026-06-01T00:00:00.000Z",
+          "logtimes": 8,
+          "assign_percent": 8,
+          "overtime": 0
+        },
+        {
+          "logdate": "2026-06-02T00:00:00.000Z",
+          "logtimes": 0,
+          "assign_percent": 8,
+          "overtime": 0
+        }
+      ]
+    },
+    {
+      "id": 7777,
+      "user_id": 115,
+      "project": {
+        "id": 888,
+        "name": "Internal Operations",
+        "is_internal": true
+      },
+      "timesheet": [
+        {
+          "logdate": "2026-06-01T00:00:00.000Z",
+          "logtimes": 1.5,
+          "assign_percent": 2,
+          "overtime": 0
+        }
+      ]
+    }
+  ],
+  "overall": [
+    {
+      "logdate": "2026-06-01T00:00:00.000Z",
+      "logtimes": 9.5,
+      "assign_percent": 10,
+      "overtime": 0
+    }
+  ]
+}

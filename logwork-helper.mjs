@@ -11,8 +11,8 @@ import {
 import { readCommitMessage } from './lib/git-message.mjs';
 import { getFreshToken, getUserIdFromJwt } from './lib/auth.mjs';
 import {
+  addLogtime,
   ApiError,
-  createLogworkEntry,
   getDefaultTasks,
   getTodayTimesheetProjects
 } from './lib/api.mjs';
@@ -97,16 +97,19 @@ try {
 
     const entry = {
       projectId: project.projectId,
-      taskId: task.taskId,
+      projectMemberId: project.projectMemberId,
+      logtimes: hours,
+      taskName: task.name,
+      localDateISO,
+      worklogTaskId: task.taskId,
       typeOfWork: task.typeOfWork,
-      effortHours: hours,
       description,
-      localDateISO
+      worklogNeedsProjectId: true
     };
 
     let result;
     try {
-      result = await createLogworkEntry(token, entry);
+      result = await addLogtime(token, entry);
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 401) {
         throw error;
@@ -122,7 +125,7 @@ try {
 
       userId = getUserIdFromJwt(token);
       ({ projects, daySummaries } = await loadProjectData(token, userId, localDateISO));
-      result = await createLogworkEntry(token, entry);
+      result = await addLogtime(token, entry);
     }
 
     if (result?.dryRun) {

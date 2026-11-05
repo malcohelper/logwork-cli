@@ -1,0 +1,23 @@
+{
+  "data": {
+    "detail": [
+      {
+        "id": 5234,
+        "user_id": 115,
+        "project": {
+          "id": 643,
+          "name": "2621A-SIT-HTML BUILDER-PRJ",
+          "is_internal": false
+        },
+        "timesheet": [
+          {
+            "logdate": "2026-06-01T00:00:00.000Z",
+            "logtimes": 8,
+            "assign_hours": 8,
+            "overtime": 0
+          }
+        ]
+      }
+    ]
+  }
+}
