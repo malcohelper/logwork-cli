@@ -1,7 +1,6 @@
 {
-  "name": "logwork-helper",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@malcohelper/logwork-helper",
+  "version": "0.2.6",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -20,5 +19,8 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.5.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
