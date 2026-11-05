@@ -8,9 +8,9 @@ export const CONFIG = {
   ],
 
   projectMembersPath: '/project-members/by-user',
-  memberLogtimePath: '/member-logtime',
-  memberLogtimeMethod: 'PATCH',
   timesheetPath: '/member-logtime/timesheet',
+  logworkEntriesPath: '/logwork/entries',
+  logworkTaskDefaultsPath: '/logwork/tasks/defaults',
 
   pollMs: 500,
   hookTimeoutMs: 5 * 60 * 1000,

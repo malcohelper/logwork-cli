@@ -122,18 +122,17 @@ rm .git/hooks/commit-msg
 ## API Notes
 
 - Read today bookings: `GET /member-logtime/timesheet`
-- Write logtime: `PATCH /member-logtime/:project_member_id`
+- Read default tasks: `GET /logwork/tasks/defaults?project_id=<id>`
+- Write logwork entry: `POST /logwork/entries`
 - Payload shape:
 
 ```json
 {
-  "add_data": [
-    {
-      "project_member_id": 5352,
-      "logtimes": 0.5,
-      "task_name": "Fix login bug",
-      "logdate": "2026-06-05T00:00:00.000Z"
-    }
-  ]
+  "worklog_task_id": 79,
+  "type_of_work": "create",
+  "effort_hours": 1,
+  "logdate": "2026-11-05",
+  "project_id": 720,
+  "description": "SAP-37"
 }
 ```

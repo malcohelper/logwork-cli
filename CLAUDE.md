@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A macOS-only Git `commit-msg` hook plus an interactive Node.js (ESM, Node 20+) CLI that logs work hours to Resource Optimiser. It reads the user's auth token from Safari `localStorage` via `osascript`, lists only projects booked for today, and PATCHes a logtime entry. The only runtime dependency is `@clack/prompts`. User-facing prompt text is in Vietnamese; keep that convention when editing `lib/ui.mjs`.
+A macOS-only Git `commit-msg` hook plus an interactive Node.js (ESM, Node 20+) CLI that logs work hours to Resource Optimiser. It reads the user's auth token from Safari `localStorage` via `osascript`, lists only projects booked for today, and POSTs a logwork entry for a chosen default task. The only runtime dependency is `@clack/prompts`. User-facing prompt text is in Vietnamese; keep that convention when editing `lib/ui.mjs`.
 
 ## Commands
 
@@ -19,7 +19,7 @@ node install.mjs [--dry-run] <repo>      # install hook into a target repo
 LOGWORK_DRY_RUN=1 git commit             # exercise the hook without writing logtime
 ```
 
-`LOGWORK_DRY_RUN=1` is checked only in `addLogtime` (`lib/api.mjs`): it still reads the token and calls the read APIs, but skips the PATCH. Everything that touches Safari/Terminal requires macOS with `osascript`, so the end-to-end flow cannot run in a Linux container.
+`LOGWORK_DRY_RUN=1` is checked only in `createLogworkEntry` (`lib/api.mjs`): it still reads the token and calls the read APIs, but skips the POST. Everything that touches Safari/Terminal requires macOS with `osascript`, so the end-to-end flow cannot run in a Linux container.
 
 ## Architecture
 
@@ -40,9 +40,9 @@ The commit hook cannot run an interactive TUI inside a GUI Git client, so it han
 
 ### API layer
 
-`lib/api.mjs` talks to `CONFIG.apiBase`. The live flow uses only `getTodayTimesheetProjects` (GET `/member-logtime/timesheet`) and `addLogtime` (PATCH `/member-logtime/:project_member_id` with an `add_data` array). The timesheet response shape is not pinned down, so `collectTimesheetRows` walks the whole JSON tree for rows matching today's date (via date fields or date-named keys), and `pickFirst`/`readNumber` try long lists of candidate field names. Extend those candidate lists rather than hard-coding one shape. Projects are grouped by `project_member_id`, and those with zero booked hours are dropped. Assigned percent is booked hours divided by `CONFIG.standardDayHours` (8). `getProjects`, `getDayLogs`, and `getAllDayLogSummaries` are currently unused by the main flow.
+`lib/api.mjs` talks to `CONFIG.apiBase`. The live flow uses `getTodayTimesheetProjects` (GET `/member-logtime/timesheet`), `getDefaultTasks` (GET `/logwork/tasks/defaults?project_id=`), and `createLogworkEntry` (POST `/logwork/entries`). The entry body is `{worklog_task_id, type_of_work, effort_hours, logdate, project_id, description}`. The task list has 7 shared defaults (`create`, `correct`, `improve`, `other` types), and the user picks one before the hours and description prompts. The timesheet response shape is not pinned down, so `collectTimesheetRows` walks the whole JSON tree for rows matching today's date (via date fields or date-named keys), and `pickFirst`/`readNumber` try long lists of candidate field names. Extend those candidate lists rather than hard-coding one shape. Projects are grouped by `project_member_id`, and those with zero booked hours are dropped. Assigned percent is booked hours divided by `CONFIG.standardDayHours` (8). `getProjects`, `getDayLogs`, and `getAllDayLogSummaries` are currently unused by the main flow.
 
-Dates are local calendar dates (`YYYY-MM-DD` from `todayLocalDateISO`) sent to the API as `YYYY-MM-DDT00:00:00.000Z` (`toApiLogDate`). This is intentional, not a timezone bug.
+Dates are local calendar dates (`YYYY-MM-DD` from `todayLocalDateISO`). The timesheet GET still needs the `T00:00:00.000Z` form from `toApiLogDate`, but the logwork POST sends the plain `YYYY-MM-DD` date, as the web app does.
 
 ### Commit message
 
