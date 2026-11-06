@@ -36,7 +36,7 @@ import {
   sendMacosNotification,
   sendOsNotification
 } from '../lib/os-notification.mjs';
-import { parseReminderArgs, runReminderCli } from '../reminder-cli.mjs';
+import { parseReminderArgs, runReminderCli } from '../commands/reminder.mjs';
 
 test('reminder config defaults to weekdays at 17:00 for both targets', async () => {
   assert.deepEqual(defaultReminderConfig(), {
@@ -79,14 +79,14 @@ test('macOS reminder plist schedules configured weekdays with stable runner path
   const plist = buildMacosReminderPlist({
     config: { enabled: true, time: '17:00', target: 'both', days: [1, 2, 3, 4, 5] },
     nodePath: '/opt/homebrew/bin/node',
-    runnerPath: '/Users/test/.logwork-helper/reminder-cli.mjs',
-    home: '/Users/test/.logwork-helper'
+    runnerPath: '/Users/test/.logwork-cli/bin/logwork.mjs',
+    home: '/Users/test/.logwork-cli'
   });
-  assert.match(plist, /sg\.vinova\.logwork-helper\.reminder/);
+  assert.match(plist, /sg\.vinova\.logwork-cli\.reminder/);
   assert.equal((plist.match(/<key>Weekday<\/key>/g) || []).length, 5);
   assert.match(plist, /<key>Hour<\/key><integer>17<\/integer>/);
   assert.match(plist, /<key>Minute<\/key><integer>0<\/integer>/);
-  assert.match(plist, /reminder-cli\.mjs/);
+  assert.match(plist, /bin\/logwork\.mjs<\/string>\n\s+<string>reminder<\/string>\n\s+<string>run<\/string>/);
   assert.match(plist, /--home/);
 });
 
@@ -94,12 +94,12 @@ test('Windows reminder task uses weekly weekdays and a fixed Node runner action'
   const args = buildWindowsReminderCreateArgs({
     config: { enabled: true, time: '17:00', target: 'both', days: [1, 2, 3, 4, 5] },
     nodePath: 'C:\\Program Files\\nodejs\\node.exe',
-    runnerPath: 'C:\\Users\\test\\.logwork-helper\\reminder-cli.mjs',
-    home: 'C:\\Users\\test\\.logwork-helper'
+    runnerPath: 'C:\\Users\\test\\.logwork-cli\\bin\\logwork.mjs',
+    home: 'C:\\Users\\test\\.logwork-cli'
   });
-  assert.deepEqual(args.slice(0, 4), ['/Create', '/TN', 'Logwork Helper Reminder', '/TR']);
+  assert.deepEqual(args.slice(0, 4), ['/Create', '/TN', 'Logwork Reminder', '/TR']);
   assert.match(args[4], /^"C:\\Program Files\\nodejs\\node\.exe"/);
-  assert.match(args[4], /reminder-cli\.mjs/);
+  assert.match(args[4], /bin\\logwork\.mjs reminder run --home/);
   assert.equal(args[args.indexOf('/SC') + 1], 'WEEKLY');
   assert.equal(args[args.indexOf('/D') + 1], 'MON,TUE,WED,THU,FRI');
   assert.equal(args[args.indexOf('/ST') + 1], '17:00');
@@ -239,8 +239,8 @@ test('smart reminder converts missing credentials into actionable notification t
   });
   assert.equal(result.checks.ro.status, 'auth_required');
   assert.equal(result.checks.jira.status, 'auth_required');
-  assert.match(result.notification.message, /logwork-helper auth login/);
-  assert.match(result.notification.message, /logwork-helper jira login/);
+  assert.match(result.notification.message, /logwork login/);
+  assert.match(result.notification.message, /logwork login jira/);
 });
 
 test('scheduled reminder notifies once per day and persists sanitized status', async () => {

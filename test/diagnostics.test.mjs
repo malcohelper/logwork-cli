@@ -19,7 +19,7 @@ test('generateDiagnosticsReport writes sanitized support report', async () => {
     await mkdir(dir, { recursive: true });
     const cwd = join(dir, 'project');
     await mkdir(cwd, { recursive: true });
-    await writeFile(join(dir, '.logwork-helper.json'), JSON.stringify({
+    await writeFile(join(dir, '.logwork.json'), JSON.stringify({
       projectMappings: [
         {
           projectName: 'Course Builder',
@@ -29,7 +29,7 @@ test('generateDiagnosticsReport writes sanitized support report', async () => {
         }
       ]
     }), 'utf8');
-    await writeFile(join(cwd, '.logwork-helper.json'), JSON.stringify({
+    await writeFile(join(cwd, '.logwork.json'), JSON.stringify({
       projectMappings: [
         {
           projectName: 'Operations',
@@ -76,7 +76,7 @@ test('generateDiagnosticsReport writes sanitized support report', async () => {
     assert.equal(result.path, outputPath);
     assert.match(result.summary, /Diagnostics report written to/);
     const report = await readFile(outputPath, 'utf8');
-    assert.match(report, /Logwork Helper Diagnostics/);
+    assert.match(report, /logwork-cli Diagnostics/);
     assert.match(report, /packageVersion:/);
     assert.match(report, /query_logwork/);
     assert.match(report, /Config Snapshot/);
@@ -111,7 +111,7 @@ test('generateDiagnosticsReport can include mapping details with explicit opt-in
     await mkdir(dir, { recursive: true });
     const cwd = join(dir, 'project');
     await mkdir(cwd, { recursive: true });
-    await writeFile(join(dir, '.logwork-helper.json'), JSON.stringify({
+    await writeFile(join(dir, '.logwork.json'), JSON.stringify({
       projectMappings: [
         {
           projectName: 'Course Builder',

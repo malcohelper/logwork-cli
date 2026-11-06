@@ -1,12 +1,9 @@
-#!/usr/bin/env node
-
 import { confirm, isCancel } from '@clack/prompts';
-import { isMainModule } from './lib/entrypoint.mjs';
-import { parseRoEditArgs } from './lib/ro-edit-args.mjs';
+import { parseRoEditArgs } from '../lib/ro-edit-args.mjs';
 import {
   applyRoLogworkEdit,
   previewRoLogworkEdit
-} from './lib/ro-edit-workflow.mjs';
+} from '../lib/ro-edit-workflow.mjs';
 
 export async function runRoEditCommand(args = [], {
   preview = previewRoLogworkEdit,
@@ -28,7 +25,9 @@ export async function runRoEditCommand(args = [], {
   const editPreview = await preview({
     logworkId: options.logworkId,
     hours: options.hours,
-    taskName: options.taskName
+    taskName: options.taskName,
+    description: options.description,
+    typeOfWork: options.typeOfWork
   });
   if (!options.json) {
     print(editPreview.summary);
@@ -56,19 +55,28 @@ export async function runRoEditCommand(args = [], {
 
 export function formatRoEditHelp() {
   return `Usage:
-  logwork-helper edit <logwork-id> --hours <hours> [--yes] [--json]
-  logwork-helper edit <logwork-id> --task-name <text> [--yes] [--json]
-  logwork-helper edit <logwork-id> --hours <hours> --task-name <text> [--yes] [--json]
+  logwork edit <id> [--hours <h>] [--task <task>] [--desc <text>] [--type <type>] [--yes] [--json]
 
-Edits one existing Resource Optimiser logwork. Project and date are always preserved.
-The command previews the diff, checks for concurrent changes before PATCH, and verifies the saved result.
+Changes one Resource Optimiser entry. Project and date are preserved. Get the id
+from \`logwork query\`.
+
+RO has no staff edit API, so apply replaces the entry: it creates the corrected
+entry, then deletes the original (the new entry gets a new id and is approved
+immediately). If the delete fails, the new entry is rolled back. Only submitted
+or approved entries can be edited; rejected entries are fixed with resubmit.
 
 Options:
-  --hours <hours>       Replacement hours; --logtimes is accepted as an alias
-  --task-name <text>    Replacement task name; --task is accepted as an alias
-  -y, --yes             Apply without interactive confirmation
-  --json                Print structured JSON; requires --yes
-  -h, --help            Show this help`;
+  --hours <h>      New hours (alias: --logtimes)
+  --task <task>    New worklog task from the project catalog, or #<id> (alias: --task-name)
+  --desc <text>    New description: what you did (alias: --description)
+  --type <type>    New type of work: create, correct, improve, other
+                   (follows the new task's catalog type when the task changes)
+  -y, --yes        Apply without the confirmation prompt
+  --json           Print the result as JSON (requires --yes)
+  -h, --help       Show this help
+
+Example:
+  logwork edit 304032 --task "Bug Fix" --desc "Fix date picker timezone (SAP-42)"`;
 }
 
 async function defaultConfirm(message) {
@@ -77,11 +85,4 @@ async function defaultConfirm(message) {
     initialValue: false
   });
   return !isCancel(result) && result === true;
-}
-
-if (isMainModule(import.meta.url)) {
-  runRoEditCommand(process.argv.slice(2)).catch((error) => {
-    console.error(`RO edit error: ${error.message}`);
-    process.exitCode = 1;
-  });
 }

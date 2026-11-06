@@ -7,7 +7,7 @@ This guide describes the complete Resource Optimiser and Jira workflow available
 Requirements:
 
 - macOS or Windows 10/11.
-- Node.js 20 or newer.
+- Node.js 22 or newer.
 - npm.
 - A Resource Optimiser account.
 - A Jira Personal Access Token when Jira features are used.
@@ -15,23 +15,24 @@ Requirements:
 Install and prepare the stable local runtime:
 
 ```bash
-npm install -g logwork-helper
-logwork-helper setup-user
+npm install -g logwork-cli
+logwork setup
 ```
 
 Authenticate each target from Terminal:
 
 ```bash
-logwork-helper auth login
-logwork-helper jira login
+logwork login
+logwork login jira
 ```
 
 Check both sessions without printing credentials:
 
 ```bash
-logwork-helper auth status
-logwork-helper jira status
+logwork status
 ```
+
+Upgrading from `logwork-helper`: see [Upgrading from logwork-helper](../README.md#upgrading-from-logwork-helper).
 
 Resource Optimiser credentials and Jira PATs are never accepted by MCP tools. The final sessions are stored in macOS Keychain or Windows Credential Manager.
 
@@ -39,19 +40,24 @@ Resource Optimiser credentials and Jira PATs are never accepted by MCP tools. Th
 
 | Operation | Terminal CLI | `logwork` UI | MCP tool | Writes external data |
 | --- | --- | --- | --- | --- |
-| Query RO | - | `/query <period>` | `query_logwork` | No |
-| Preview/apply RO | - | `/logwork ro` | `preview_logwork_batch`, `apply_logwork_batch` | Apply only |
-| Edit existing RO logwork | `edit` | `/edit-logwork` | `preview_ro_logwork_edit`, `apply_ro_logwork_edit` | Apply only |
-| Resubmit rejected RO | - | - | `preview_ro_logwork_resubmit`, `apply_ro_logwork_resubmit` | Apply only |
-| Delete RO entry | `delete` | - | `preview_ro_logwork_delete`, `apply_ro_logwork_delete`, `delete_ro_logwork_entry` | Apply only |
-| Preview/apply Jira | - | `/logwork jira` | `preview_jira_worklog_batch`, `apply_jira_worklog_batch` | Apply only |
-| Preview/apply Both | - | `/logwork both` | Run both target flows separately | Apply only |
-| Project mapping | - | `/projects`, `/map` | `list_logwork_projects`, `upsert_project_mapping` | Local config only |
-| Reconcile RO/Jira | `reconcile` | `/reconcile` | `reconcile_logwork` | No |
-| Apply history | `history` | `/history` | `query_apply_history` | No |
-| Reminder | `reminder` | - | `get_logwork_reminder`, `configure_logwork_reminder`, `test_logwork_reminder` | OS schedule only |
-| Update | `update` | Startup notice | `check_for_updates`, `apply_update` | Local runtime only |
-| Release preflight | `release doctor` | - | - | No |
+| Query RO | `logwork query` | `/query <period>` | `get_logwork` | No |
+| Log RO | `logwork quick` (one entry) | `/logwork ro` | `log_work` | Apply call only |
+| Edit existing RO entry | `logwork edit` | `/edit-logwork` | `edit_entry` | Apply call only |
+| Resubmit rejected RO | - | - | `resubmit_entry` | Apply call only |
+| Delete RO entry | `logwork delete` | - | `delete_entry` | Apply call only |
+| Log Jira | - | `/logwork jira` | `log_jira_work` | Apply call only |
+| Log Both | - | `/logwork both` | `log_work` + `log_jira_work` separately | Apply calls only |
+| Project mapping | - | `/projects`, `/map` | `list_projects`, `map_project` | Local config only |
+| RO worklog task catalog | - | - | `list_tasks` | No |
+| Reconcile RO/Jira | `logwork reconcile` | `/reconcile` | `reconcile` | No |
+| Apply history | `logwork history` | `/history` | `get_history` | No |
+| Reminder | `logwork reminder` | - | `reminder` (`action`) | OS schedule only |
+| Update | `logwork update` | Startup notice | `update` (`action`) | Local runtime only |
+| Login | `logwork login\|logout\|status` | `/auth`, `/status` | `login` (explains terminal login) | OS credential store |
+| Diagnostics | `logwork doctor` | `/diagnostics` | - | Local file only |
+| Release preflight | `logwork release doctor` | - | - | No |
+
+MCP writes are two calls to the same tool. The first call, without `confirm`, returns a preview with a `batchId` or `previewId`. The second call passes that id with `confirm: true`. An apply call that also carries content fields is rejected.
 
 All apply, mapping, reminder configuration, reminder test, and update operations require explicit confirmation. Query, preview, reconciliation, history, status, and update check operations are read-only.
 
@@ -67,71 +73,101 @@ Use the RO flow when the intent is Resource Optimiser logwork:
 
 MCP uses:
 
-1. `preview_logwork_batch`
-2. `apply_logwork_batch`
+1. `list_projects` and `list_tasks`, to choose a valid worklog task.
+2. `log_work` with `text`, which returns the preview.
+3. `log_work` with `batchId` and `confirm: true`, after approval.
 
 RO resolves each task to a project using the approved preview override, local ticket/keyword mappings, booked projects, and available project memberships. Jira is not written by this flow.
 
-Creating new RO logwork uses `POST /logwork/entries`. The helper resolves each batch task name to a Resource Optimiser worklog task (`GET /logwork/tasks` and `/logwork/tasks/defaults` for the matched project). The task name in your batch text must match the RO worklog task name exactly (case-insensitive). **Task name** (catalog) is not the same as **type of work** (`create`, `correct`, `improve`, `other`) on the log entry.
+Creating new RO logwork uses `POST /logwork/entries`. Every RO entry has two text parts:
+
+- **Worklog task**: a catalog item from `GET /logwork/tasks` and `/logwork/tasks/defaults` for the matched project (for example `Feature Development`, `Code Review & Refactoring`). Sent as `worklog_task_id`.
+- **Description**: free text describing the actual work (for example `Implement maintenance mode UI (SCB-213)`). Sent as `description`.
+
+Write each line as `+<hours> <worklog task> | <description>`. The worklog task must match the RO catalog name exactly (case-insensitive) or be written as `#<id>`. A line without `|` is treated as a catalog task name when it matches one (no description is written and the preview warns); otherwise it becomes the description under MCP `defaultWorklogTask`, or the entry stays unresolved with reason `worklog_task_required` and `availableTaskNames`. **Worklog task** (catalog) is not the same as **type of work** (`create`, `correct`, `improve`, `other`) on the log entry.
 
 New entries default to `type_of_work: other` when the matched catalog task has no `type_of_work`. When the RO task row defines `type_of_work`, preview copies it onto the entry unless MCP `typeOfWork` overrides the whole batch.
 
-Optional MCP `preview_logwork_batch` input `typeOfWork` applies to every line in the batch and overrides per-task catalog defaults.
+The optional `log_work` preview input `typeOfWork` applies to every line in the batch and overrides per-task catalog defaults.
+
+The optional `log_work` preview input `defaultWorklogTask` (name or `#<id>`) supplies the worklog task for lines without `|` that are not catalog task names. The `batchId` includes this value and every description, so approval always covers the exact payload.
 
 ### Staff API surface (F03 vs legacy)
 
 | Intent | HTTP | Used by helper |
 | --- | --- | --- |
-| Create entry (approved) | `POST /logwork/entries` | `preview_logwork_batch` / `apply_logwork_batch` |
+| Create entry (approved) | `POST /logwork/entries` | `log_work`, `logwork quick` |
 | List worklog tasks | `GET /logwork/tasks`, `/logwork/tasks/defaults` | Batch preview task resolution |
-| Day view (status, lock) | `GET /logwork/day` | `query_logwork` entry enrichment |
+| Day view (status, lock) | `GET /logwork/day` | `get_logwork` entry enrichment, edit reads |
 | Weekly summary | `GET /logwork/weekly` | Available in API client; booked hours still come from legacy timesheet |
 | Rejected list | `GET /logwork/rejected` | Optional query enrichment (`includeRejected` when wired) |
-| Resubmit rejected | `PATCH /logwork/entries/:id/resubmit` | `preview_ro_logwork_resubmit`, `apply_ro_logwork_resubmit` |
-| Delete submitted/approved | `DELETE /logwork/entries/:id` | `delete_ro_logwork_entry` (confirm required) |
-| Booked + logged range | `GET /member-logtime/timesheet` | `query_logwork`, batch booked-project resolution |
-| Day task detail | `GET /member-logtime` | `query_logwork` entry lines |
-| Edit hours/task label | `PATCH /member-logtime` `update_data` | `preview_ro_logwork_edit`, `apply_ro_logwork_edit` |
+| Resubmit rejected | `PATCH /logwork/entries/:id/resubmit` | `resubmit_entry` |
+| Delete submitted/approved | `DELETE /logwork/entries/:id` | `delete_entry`, `logwork delete` |
+| Booked + logged range | `GET /member-logtime/timesheet` | `get_logwork`, batch booked-project resolution |
+| Day task detail | `GET /member-logtime` | `get_logwork` entry lines |
+| Edit hours/task/type/description | `POST /logwork/entries` then `DELETE /logwork/entries/:id` (replace) | `edit_entry`, `logwork edit` |
 
-Legacy `PATCH` updates `task_name` text only; it does not remap `worklog_task_id`. Prefer F03 create/resubmit flows when task catalog alignment matters.
+RO F03 has no staff edit endpoint. `PATCH /logwork/pm/entries/:id/edit-approve` is PM-only, so the helper edits by replacing the entry. The legacy `PATCH /member-logtime` `update_data` is no longer used by the edit flow. It only changed the `task_name` text and never remapped `worklog_task_id` or `description`.
 
 ### Edit Existing Resource Optimiser Logwork
 
 Use the logwork entry ID returned by an RO query:
 
 ```bash
-logwork-helper edit 290364 --hours 0.5
-logwork-helper edit 290364 --task-name "Updated task name (SCB-470)"
+logwork edit 304032 --hours 0.5
+logwork edit 304032 --task "Bug Fix" --desc "Fix date picker timezone (SAP-42)"
+logwork edit 304032 --type improve
 ```
 
-The terminal UI equivalent is:
+The long forms `--task-name` and `--description` are also accepted. The terminal UI equivalent is:
 
 ```text
-/edit-logwork 290364 --hours 0.5 --task-name Updated task name (SCB-470)
+/edit-logwork 304032 --hours 0.5 --task Bug Fix --desc Fix date picker timezone (SAP-42)
 ```
 
-MCP uses two separate tools:
+MCP uses two calls to `edit_entry`:
 
-1. `preview_ro_logwork_edit` with `logworkId` and at least one of `hours` or `taskName`.
-2. `apply_ro_logwork_edit` with the cached `previewId` and `confirm: true`.
+1. A preview call with `logworkId` and at least one of `hours`, `taskName` (catalog name or `#<id>`), `description`, or `typeOfWork`.
+2. An apply call with the returned `previewId` and `confirm: true`.
 
-The API write uses `PATCH /member-logtime/{projectMemberId}` and sends the logwork entry ID inside `update_data`. The helper reads the original entry and sends the complete merged values required by RO. Only hours and task name may change; project and date remain unchanged. Apply re-checks the original revision before PATCH and verifies the saved entry afterward. Entries owned by another user or created by Jira are blocked.
+How the edit is processed:
+
+1. **Read.** The legacy `GET /member-logtime/:id` returns the date, owner, and Jira link. `GET /logwork/day?date=` returns the F03 fields: status, `worklog_task_id`, `type_of_work`, and `description`. The project-member list maps `project_member_id` to `project_id`.
+2. **Resolve.** The worklog task is resolved against `GET /logwork/tasks` plus `/logwork/tasks/defaults` for the project. When the task changes and `typeOfWork` is omitted, the new task's catalog `type_of_work` is used. Otherwise the current type is kept.
+3. **Apply.** It re-checks the original revision, then:
+   - creates the corrected entry with `POST /logwork/entries`;
+   - deletes the original with `DELETE /logwork/entries/:id`;
+   - verifies the new entry.
+
+   If the create fails, nothing changed. If the delete fails, the new entry is deleted again (rollback). If that rollback also fails, the error names both ids.
+
+   If the create response has no id, the new entry is looked up in `/logwork/day`. If it still can't be found, the original is **not** deleted.
+
+Deleting needs no PM approval and the new entry is approved immediately, so the edit takes effect at once. The `is_locked: true` flag RO puts on approved entries does not block the delete. Only a locked day (`isLocked` from `/logwork/day`) blocks an edit. The result returns `originalLogworkId` and `newLogworkId`. Project and date never change.
+
+These entries are blocked:
+- rejected entries (use resubmit),
+- entries on locked days,
+- entries owned by another user,
+- entries created by Jira.
+
+In dry run (`LOGWORK_DRY_RUN=1`), apply returns both requests without writing.
 
 ### Delete mistaken Resource Optimiser logwork
 
-Use the entry ID from `query_logwork` or the RO UI. Only **submitted** or **approved** entries can be soft-deleted; **rejected** entries must be resubmitted or edited instead.
+Use the entry ID from `logwork query`, `get_logwork`, or the RO UI. Only **submitted** or **approved** entries can be soft-deleted. **Rejected** entries must be resubmitted instead (`resubmit_entry`). Deleting needs no PM approval.
 
 ```bash
-logwork-helper delete 290364
-logwork-helper delete 290364 --yes --json
+logwork delete 290364
+logwork delete 290364 --yes --json
 ```
 
-MCP (two-step, recommended):
+MCP uses two calls to `delete_entry`:
 
-1. `preview_ro_logwork_delete` with `logworkId`
-2. `apply_ro_logwork_delete` with cached `previewId` and `confirm: true`
+1. A preview call with `logworkId`.
+2. An apply call with the returned `previewId` and `confirm: true`.
 
-One-step shortcut: `delete_ro_logwork_entry` with `logworkId` and `confirm: true` (still previews and checks revision before DELETE).
+The apply call re-checks the entry revision before sending `DELETE`.
 
 The API call is `DELETE /logwork/entries/:id` (soft-delete via `deleted_date`).
 
@@ -145,8 +181,8 @@ Use the Jira flow when the intent is a Jira worklog:
 
 MCP uses:
 
-1. `preview_jira_worklog_batch`
-2. `apply_jira_worklog_batch`
+1. `log_jira_work` with `text`, which returns the preview.
+2. `log_jira_work` with `batchId` and `confirm: true`, after approval.
 
 Every entry must contain exactly one Jira issue key. RO is not written by this flow.
 
@@ -165,7 +201,7 @@ The flow creates two independent previews and requests two approvals:
 
 The operation is not atomic. If RO succeeds and Jira fails, RO is not rolled back. Apply history records the result of each target with `flowTarget: both` so partial outcomes remain visible.
 
-MCP has no unified Both tool. The assistant must call both preview tools, present both summaries, and request approval for each apply separately.
+MCP has no unified Both tool. The assistant previews with both `log_work` and `log_jira_work`, presents both summaries, and requests approval for each apply separately.
 
 ## Input Format
 
@@ -173,16 +209,18 @@ MCP and pasted weekly text use date headings followed by one task per line:
 
 ```text
 Monday, 13 Jul 2026
-+2 Maintenance mode management (SCB-213)
-+1 Update system page (SCB-214)
++2 Feature Development | Maintenance mode management (SCB-213)
++1 Feature Development | Update system page (SCB-214)
 Tuesday, 14 Jul 2026
-+1.5 Fix password reset regression (SCB-215)
++1.5 Bug Fix | Fix password reset regression (SCB-215)
 ```
 
 Rules:
 
 - A date heading uses `Weekday, DD Mon YYYY`.
-- A task uses `+<hours> <task text>`.
+- A task uses `+<hours> <worklog task> | <description>`. Only the first `|` splits the line.
+- For RO, `<worklog task>` must be an RO catalog task (`list_tasks`) and `<description>` is stored as the entry description.
+- For Jira, `<worklog task>` is ignored and `<description>` becomes the worklog comment. Lines without `|` use the whole text.
 - Hours must be greater than zero and may be decimal.
 - RO can accept entries without a Jira issue key when a project can still be resolved.
 - Jira requires exactly one key such as `SCB-213` in every entry.
@@ -196,24 +234,25 @@ Input:
 
 ```text
 Monday, 13 Jul 2026
-+2 Maintenance mode management (SCB-213)
-+1 Update system page (SCB-214)
++2 Feature Development | Maintenance mode management (SCB-213)
++1 Feature Development | Update system page (SCB-214)
 ```
 
 Processing:
 
-1. Parse the date, hours, task text, and issue keys.
+1. Parse the date, hours, worklog task, description, and issue keys.
 2. Load booked RO projects and project memberships for the date.
-3. Apply user/project ticket and keyword mappings.
-4. Mark each entry as resolved, resolved but unbooked, or unresolved.
-5. Return an approval summary. No work is submitted during preview.
+3. Apply user/project ticket and keyword mappings (matched against the whole line).
+4. Resolve the worklog task in the project catalog and attach `worklogTaskId` and `description`.
+5. Mark each entry as resolved, resolved but unbooked, or unresolved.
+6. Return an approval summary. No work is submitted during preview.
 
 Illustrative ready preview:
 
 ```text
 Logwork preview:
-- 2026-07-13: +2h 2621A-SIT-HTML BUILDER-PRJ - Maintenance mode management (SCB-213) (via config_ticket, confidence 1)
-- 2026-07-13: +1h 2621A-SIT-HTML BUILDER-PRJ - Update system page (SCB-214) (via config_ticket, confidence 1)
+- 2026-07-13: +2h 2621A-SIT-HTML BUILDER-PRJ - Feature Development | Maintenance mode management (SCB-213) (via config_ticket, confidence 1)
+- 2026-07-13: +1h 2621A-SIT-HTML BUILDER-PRJ - Feature Development | Update system page (SCB-214) (via config_ticket, confidence 1)
 Approval checklist: 2 entries, 3h total, 2026-07-13.
 Projects: 2621A-SIT-HTML BUILDER-PRJ: 3h.
 Ready to apply.
@@ -224,8 +263,8 @@ After explicit approval, the apply result is similar to:
 ```text
 Logwork submitted:
 Submitted 2 entries, 3h total.
-- 2026-07-13: +2h 2621A-SIT-HTML BUILDER-PRJ - Maintenance mode management (SCB-213)
-- 2026-07-13: +1h 2621A-SIT-HTML BUILDER-PRJ - Update system page (SCB-214)
+- 2026-07-13: +2h 2621A-SIT-HTML BUILDER-PRJ - Feature Development | Maintenance mode management (SCB-213)
+- 2026-07-13: +1h 2621A-SIT-HTML BUILDER-PRJ - Feature Development | Update system page (SCB-214)
 ```
 
 If a valid membership is not booked for the selected date, preview prefixes the entry with `UNBOOKED`. Applying it requires a second decision through `allowUnbooked: true`. An unresolved project always blocks apply.
@@ -285,11 +324,11 @@ Maintenance mode management (SCB-213)
 #lh:8f3a91c0
 ```
 
-The shorter `#lh:<hash>` marker replaces the old visible `[logwork-helper:...]` format. Existing worklogs with the legacy marker are still recognized during duplicate checks.
+The shorter `#lh:<hash>` marker replaces the old visible `[logwork-helper:...]` format from earlier versions. Existing worklogs with the legacy marker are still recognized during duplicate checks.
 
 ## Duplicate And Preview Safety
 
-RO and Jira MCP previews are cached for one hour, with at most 100 previews per target. Apply requires the cached `batchId`. A missing, expired, consumed, or modified preview must be generated again.
+RO and Jira MCP previews are cached for one hour, with at most 100 previews per target, and are lost when the server restarts. Apply requires the cached `batchId` or `previewId`. A missing, expired, consumed, or modified preview must be generated again.
 
 Jira duplicate detection is blocking and has no override. Apply rechecks worklogs immediately before the first write. If a duplicate appears after preview, the Jira batch is blocked before submission.
 
@@ -307,10 +346,10 @@ RO project mapping can use:
 Example MCP sequence:
 
 1. `get_jira_issue` reads `SCB-213` metadata.
-2. `list_logwork_projects` lists valid RO memberships.
+2. `list_projects` lists valid RO memberships.
 3. The assistant compares Jira project metadata and task wording with RO project names/mappings.
 4. The assistant shows the proposed project and asks for approval.
-5. `upsert_project_mapping` stores the selected ticket/keyword mapping with `confirm: true`.
+5. `map_project` stores the selected ticket/keyword mapping with `confirm: true`.
 6. The assistant reruns RO preview.
 
 Example mapping:
@@ -335,8 +374,8 @@ Content similarity is a suggestion, not an automatic write. The built-in Both fl
 Reconciliation compares RO and Jira without writing either system:
 
 ```bash
-logwork-helper reconcile this-week
-logwork-helper reconcile last-month --json
+logwork reconcile this-week
+logwork reconcile last-month --json
 ```
 
 Supported periods are `today`, `yesterday`, `this-week`, `last-week`, `this-month`, and `last-month`. Custom date inputs are intentionally not supported. The displayed `to` date is the exclusive end of the queried range.
@@ -365,9 +404,9 @@ A correction suggestion is generated only when task-level evidence is strong, in
 RO and Jira workflow apply outcomes, including submitted, partial, failed, and preview-blocked batches, record a sanitized local result:
 
 ```bash
-logwork-helper history
-logwork-helper history --target jira --limit 10
-logwork-helper history --target both --json
+logwork history
+logwork history --target jira --limit 10
+logwork history --target both --json
 ```
 
 Example:
@@ -385,16 +424,16 @@ The ledger stores sanitized task/project/issue/result metadata. It does not stor
 Enable the default Both reminder at 17:00, Monday-Friday:
 
 ```bash
-logwork-helper reminder enable
+logwork reminder enable
 ```
 
 Other operations:
 
 ```bash
-logwork-helper reminder enable --time 18:00 --target ro
-logwork-helper reminder status
-logwork-helper reminder test
-logwork-helper reminder disable
+logwork reminder enable --time 18:00 --target ro
+logwork reminder status
+logwork reminder test
+logwork reminder disable
 ```
 
 Behavior:
@@ -404,8 +443,10 @@ Behavior:
 - A complete day stays silent.
 - At most one notification is sent per configured workday.
 - Missing auth produces an actionable notification without exposing API details.
-- macOS uses a user `launchd` agent.
-- Windows uses an interactive user Task Scheduler task.
+- macOS uses a user `launchd` agent (`sg.vinova.logwork-cli.reminder`).
+- Windows uses an interactive user Task Scheduler task (`Logwork Reminder`).
+- The scheduler runs `node ~/.logwork-cli/bin/logwork.mjs reminder run --home ~/.logwork-cli`.
+- Enabling or disabling the reminder also removes a leftover `logwork-helper` schedule.
 
 Example Both notification:
 
@@ -424,20 +465,20 @@ The notification text is localized in Vietnamese. The OS schedule stores only fi
 Check the running version against npm latest:
 
 ```bash
-logwork-helper update check
-logwork-helper update check --force
+logwork update check
+logwork update check --force
 ```
 
 Install after confirmation:
 
 ```bash
-logwork-helper update install
+logwork update install
 ```
 
 For a non-interactive terminal, approve the exact published version:
 
 ```bash
-logwork-helper update install --version 0.1.11 --yes
+logwork update install --version 0.1.11 --yes
 ```
 
 The updater:
@@ -448,7 +489,7 @@ The updater:
 - Copies and verifies the stable local MCP runtime.
 - Preserves credentials, mappings, drafts, history, and reminder config.
 
-Restart the terminal and reconnect MCP after a successful update. MCP exposes the same process through `check_for_updates` and confirmed `apply_update`.
+Restart the terminal and reconnect MCP after a successful update. MCP exposes the same process through `update` with `action: "check"`, then `action: "install"` with `confirm: true`.
 
 ## Maintainer Release Flow
 
@@ -470,7 +511,7 @@ Commit and sync the version change so the release doctor can verify a clean `mai
 git add package.json package-lock.json
 git commit -m "bump version to <version>"
 git push origin main
-logwork-helper release doctor --full
+logwork release doctor --full
 ```
 
 After the release doctor passes:
@@ -488,15 +529,20 @@ The release doctor checks package version consistency, self-dependencies, clean/
 
 | State | macOS/Windows helper-home filename | Sensitive credentials |
 | --- | --- | --- |
-| Installed runtime | `.logwork-helper/` | No |
-| User project mappings | `.logwork-helper/.logwork-helper.json` | No |
-| Manual drafts | `.logwork-helper/manual-drafts.json` | No |
-| Apply history | `.logwork-helper/apply-ledger.json` | No |
-| Update cache | `.logwork-helper/update-state.json` | No |
-| Reminder config/state | `.logwork-helper/reminder.json`, `.logwork-helper/reminder-state.json` | No |
-| RO/Jira sessions | OS credential store | Yes |
+| Installed runtime | `.logwork-cli/` | No |
+| User project mappings | `.logwork-cli/.logwork.json` | No |
+| Manual drafts | `.logwork-cli/manual-drafts.json` | No |
+| Apply history | `.logwork-cli/apply-ledger.json` | No |
+| Update cache | `.logwork-cli/update-state.json` | No |
+| Reminder config/state | `.logwork-cli/reminder.json`, `.logwork-cli/reminder-state.json` | No |
+| RO/Jira sessions | OS credential store, service `logwork-cli` | Yes |
 
-The helper home is `~/.logwork-helper` on macOS and `%USERPROFILE%\.logwork-helper` on Windows.
+The helper home is `~/.logwork-cli` on macOS and `%USERPROFILE%\.logwork-cli` on Windows. `LOGWORK_HOME` overrides it; the older `LOGWORK_HELPER_HOME` is still honored.
+
+Migration from `logwork-helper` happens on the first run, unless `LOGWORK_HOME` (or `LOGWORK_HELPER_HOME`) is set:
+- State files are copied once from `~/.logwork-helper`, and `.logwork-helper.json` is renamed to `.logwork.json` on the way. The old directory is left in place. A marker file (`.migrated-from-logwork-helper`) records the copy.
+- Credentials still stored under the old service name (`logwork-helper`) are read once and copied to `logwork-cli`.
+- Logging out clears both credential entries.
 
 ## Validation
 
@@ -518,18 +564,18 @@ That integration test stores, reads, and deletes a dedicated test credential. On
 
 Recommended end-user checks after installation:
 
-1. Run `logwork-helper --version` and `logwork-helper update check --force`.
-2. Run RO and Jira auth status commands.
+1. Run `logwork --version` and `logwork update check --force`.
+2. Run `logwork status`.
 3. Open `logwork` and preview one RO task without applying.
 4. Preview one Jira task with exactly one issue key without applying.
-5. Run `logwork-helper reconcile this-week`.
-6. Run `logwork-helper reminder test`, verify the native notification, then inspect `reminder status`.
+5. Run `logwork reconcile this-week`.
+6. Run `logwork reminder test`, verify the native notification, then inspect `reminder status`.
 7. Connect MCP and verify the tool list before testing read-only queries.
 
 ## Recovery Rules
 
-- Missing RO auth: run `logwork-helper auth login`.
-- Missing Jira auth: run `logwork-helper jira login`.
+- Missing RO auth: run `logwork login`.
+- Missing Jira auth: run `logwork login jira`.
 - Unresolved RO project: list memberships, confirm a mapping, and preview again.
 - Jira duplicate: inspect the existing worklog; there is no override.
 - Expired or consumed preview: preview again and request approval again.

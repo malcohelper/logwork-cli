@@ -10,11 +10,11 @@ Terminal:
 logwork
 ```
 
-Then run `/logwork ro`, choose a date and project, and enter tasks:
+Then run `/logwork ro`, choose a date and project, and enter tasks as `+<hours> <worklog task> | <description>`. The part before `|` must be a Resource Optimiser worklog task (for example `Feature Development`); the part after `|` is the description saved on the entry:
 
 ```text
-+2 Maintenance mode management (SCB-213)
-+1 Update system page
++2 Feature Development | Maintenance mode management (SCB-213)
++1 Feature Development | Update system page
 ```
 
 Review the preview and approve the Resource Optimiser apply.
@@ -24,52 +24,71 @@ MCP prompt:
 ```text
 Preview this Resource Optimiser logwork. Show the project and totals, then ask before applying:
 Monday, 01 Jun 2026
-+2 Maintenance mode management (SCB-213)
++2 Feature Development | Maintenance mode management (SCB-213)
 ```
 
-The assistant should use `preview_logwork_batch`, then `apply_logwork_batch` only after approval.
+The assistant calls `log_work` with the text to preview. Only after you approve does it call `log_work` again with the returned `batchId` and `confirm: true`.
+
+For a single entry today from the terminal, you can also run `logwork quick -m "Maintenance mode management (SCB-213)"`.
+
+If you do not know the worklog task names, ask:
+
+```text
+List the Resource Optimiser worklog tasks for my booked project today, then log 2h for SCB-213 "maintenance mode management" with a proper description. Preview first.
+```
+
+The assistant uses `list_projects` and `list_tasks`, writes `+2 <task> | <description>`, and previews. If you write lines without `|`, the assistant can pass `defaultWorklogTask` (for example `Feature Development`) so each line becomes the description.
 
 ## Edit Existing Resource Optimiser Logwork
 
-Find the RO logwork ID with `/query this-week` or ask the assistant to call `query_logwork`. Then use Terminal:
+Find the RO logwork ID with `logwork query this-week`, `/query this-week`, or by asking the assistant to call `get_logwork`. Then use Terminal:
 
 ```bash
-logwork-helper edit 290364 --hours 0.5
-logwork-helper edit 290364 --task-name "Updated task name (SCB-470)"
+logwork edit 304032 --hours 0.5
+logwork edit 304032 --desc "Fix date picker timezone (SAP-42)"
+logwork edit 304032 --task "Bug Fix" --type correct
 ```
 
 Or ask MCP:
 
 ```text
-Preview changing RO logwork 290364 to 0.5 hours. Keep project, date, and task name unchanged, then ask before applying.
+Preview changing RO logwork 304032 to 0.5 hours with description "Fix date picker timezone (SAP-42)". Keep project, date, and worklog task unchanged, then ask before applying.
 ```
 
-The assistant uses `preview_ro_logwork_edit`, presents the diff, and calls `apply_ro_logwork_edit` only after approval. The edit is blocked if the original entry changed after preview or was created by Jira.
+The assistant calls `edit_entry` to preview and presents the diff. Only after you approve does it call `edit_entry` again with the `previewId` and `confirm: true`.
+
+Apply replaces the entry: it creates the corrected entry, then deletes the original, so the entry gets a new id. If the delete fails, the new entry is rolled back.
+
+The edit is blocked when the original entry:
+- changed after the preview,
+- is rejected (use `resubmit_entry` instead),
+- is on a locked day, or
+- was created by Jira.
 
 ## Log Jira Only
 
 Authenticate once:
 
 ```bash
-logwork-helper jira login
+logwork login jira
 ```
 
 Run `logwork`, then `/logwork jira`. Every task needs exactly one Jira issue key:
 
 ```text
-+2 Maintenance mode management (SCB-213)
-+1 Fix deployment regression (SCB-214)
++2 Feature Development | Maintenance mode management (SCB-213)
++1 Bug Fix | Fix deployment regression (SCB-214)
 ```
 
-The preview shows issue summary/status, duplicate state, configured started time, duration, and final comment. The assistant equivalent is `preview_jira_worklog_batch`, followed by `apply_jira_worklog_batch` after approval.
+The preview shows issue summary/status, duplicate state, configured started time, duration, and final comment. The assistant equivalent is `log_jira_work`: a preview call, then a call with `batchId` and `confirm: true` after approval.
 
 ## Log Both
 
 Run `logwork`, then `/logwork both`. Use the same date and tasks for both targets:
 
 ```text
-+2 Maintenance mode management (SCB-213)
-+1 Fix deployment regression (SCB-214)
++2 Feature Development | Maintenance mode management (SCB-213)
++1 Bug Fix | Fix deployment regression (SCB-214)
 ```
 
 Resource Optimiser and Jira previews remain separate. Approve Resource Optimiser first and Jira second. The flow is not atomic, so a failure on one target does not roll back the other target.
@@ -107,8 +126,8 @@ Time must use 24-hour `HH:mm`; timezone must be an IANA name. The exact `started
 If preview says Jira auth is required:
 
 ```bash
-logwork-helper jira login
-logwork-helper jira status
+logwork login jira
+logwork status jira
 ```
 
 Paste the PAT only into the Terminal prompt, then rerun preview. Do not paste the PAT into MCP input or chat.
@@ -132,7 +151,7 @@ npm whoami
 Before publishing, run:
 
 ```bash
-logwork-helper release doctor --full
+logwork release doctor --full
 ```
 
 Do not paste npm passwords, tokens, or OTP values into chat.
@@ -142,64 +161,64 @@ Do not paste npm passwords, tokens, or OTP values into chat.
 All recent targets:
 
 ```bash
-logwork-helper history
+logwork history
 ```
 
 Jira only, last 10:
 
 ```bash
-logwork-helper history --target jira --limit 10
+logwork history --target jira --limit 10
 ```
 
 Combined Both sessions:
 
 ```bash
-logwork-helper history --target both
+logwork history --target both
 ```
 
-Inside the terminal UI, use `/history`, `/history ro`, `/history jira`, or `/history both`. With MCP, ask the assistant to use `query_apply_history`.
+Inside the terminal UI, use `/history`, `/history ro`, `/history jira`, or `/history both`. With MCP, ask the assistant to use `get_history`.
 
 ## Check And Install An Update
 
 Terminal check:
 
 ```bash
-logwork-helper update check
+logwork update check
 ```
 
 Terminal install with confirmation:
 
 ```bash
-logwork-helper update install
+logwork update install
 ```
 
 MCP prompt:
 
 ```text
-Check whether Logwork Helper has an update. Show me the current and latest versions, and ask before installing anything.
+Check whether logwork-cli has an update. Show me the current and latest versions, and ask before installing anything.
 ```
 
-After approval, the assistant calls `apply_update` with the exact version and `confirm: true`. Restart or reload the IDE MCP connection after the update completes.
+The assistant calls `update` with `action: "check"`. After approval, it calls `update` with `action: "install"`, the exact version, and `confirm: true`. Restart or reload the IDE MCP connection after the update completes.
 
 ## Enable A Native Weekday Reminder
 
 Default Both reminder at 17:00:
 
 ```bash
-logwork-helper reminder enable
+logwork reminder enable
 ```
 
 RO-only reminder at 18:00:
 
 ```bash
-logwork-helper reminder enable --time 18:00 --target ro
+logwork reminder enable --time 18:00 --target ro
 ```
 
 Send a sample notification and inspect scheduler status:
 
 ```bash
-logwork-helper reminder test
-logwork-helper reminder status
+logwork reminder test
+logwork reminder status
 ```
 
 MCP prompt:
@@ -208,20 +227,20 @@ MCP prompt:
 Enable a Both logwork reminder at 17:00 on weekdays. Explain the OS schedule and ask for approval before changing anything.
 ```
 
-The notification remains silent when enabled checks are complete. Disable and remove the OS schedule with `logwork-helper reminder disable`.
+The assistant calls `reminder` with `action: "enable"` and `confirm: true` after approval. The notification remains silent when enabled checks are complete. Disable and remove the OS schedule with `logwork reminder disable`.
 
 ## Reconcile RO And Jira
 
 Terminal summary:
 
 ```bash
-logwork-helper reconcile this-week
+logwork reconcile this-week
 ```
 
 Machine-readable output:
 
 ```bash
-logwork-helper reconcile last-month --json
+logwork reconcile last-month --json
 ```
 
 Inside `logwork`:
@@ -237,4 +256,4 @@ MCP prompt:
 Compare my RO and Jira worklogs for this week. Explain each mismatch and do not apply corrections.
 ```
 
-The assistant calls `reconcile_logwork`. When a correction is needed, it uses `preview_logwork_batch` or `preview_jira_worklog_batch` and asks for target-specific approval before applying.
+The assistant calls `reconcile`. When a correction is needed, it previews with `log_work`, `edit_entry` or `log_jira_work` and asks for target-specific approval before applying.

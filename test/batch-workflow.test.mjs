@@ -4,6 +4,7 @@ import {
   applyLogworkBatch,
   attachWorklogTaskTargets,
   buildLogworkBatchPreview,
+  listWorklogTasks,
   previewLogworkBatch
 } from '../lib/batch-workflow.mjs';
 import { parseWeeklyLogText } from '../lib/batch-parser.mjs';
@@ -154,7 +155,7 @@ test('buildLogworkBatchPreview suggests mapping setup for unresolved ticket entr
     keywords: [],
     confirm: true
   });
-  assert.match(preview.summary, /upsert_project_mapping/);
+  assert.match(preview.summary, /map_project/);
 });
 
 test('applyLogworkBatch requires confirm true', async () => {
@@ -325,8 +326,112 @@ test('attachWorklogTaskTargets marks missing RO tasks as unresolved', async () =
   });
 
   assert.equal(enriched.status, 'unresolved');
-  assert.equal(enriched.entries[0].reason, 'task_not_found');
+  assert.equal(enriched.entries[0].reason, 'worklog_task_required');
   assert.equal(enriched.approvalSummary.canApply, false);
+});
+
+const describedText = `Monday, 01 Jun 2026
++2 Code Review | Review maintenance mode PR (SCB-213)
++1 Development`;
+const catalogTasks = [
+  { id: 77, name: 'Development', project_id: null, type_of_work: 'create' },
+  { id: 78, name: 'Code Review', project_id: null, type_of_work: 'improve' }
+];
+
+test('attachWorklogTaskTargets keeps task_not_found for an explicit unknown task', async () => {
+  const preview = buildLogworkBatchPreview({
+    parsed: parseWeeklyLogText(`Monday, 01 Jun 2026
++2 Unknown task | Some work (SCB-213)`),
+    projectsByDate
+  });
+  const enriched = await attachWorklogTaskTargets(preview, {
+    fetchWorklogTasks: async () => catalogTasks
+  });
+
+  assert.equal(enriched.entries[0].reason, 'task_not_found');
+  assert.deepEqual(enriched.entries[0].availableTaskNames, ['Development', 'Code Review']);
+});
+
+test('previewLogworkBatch splits worklog task and description and apply sends description', async () => {
+  const preview = await previewLogworkBatch({
+    text: describedText,
+    fetchProjects: async () => projectsByDate.get('2026-06-01'),
+    fetchWorklogTasks: async () => catalogTasks
+  });
+
+  assert.equal(preview.status, 'ready');
+  assert.equal(preview.entries[0].taskName, 'Code Review');
+  assert.equal(preview.entries[0].worklogTaskId, 78);
+  assert.equal(preview.entries[0].description, 'Review maintenance mode PR (SCB-213)');
+  assert.equal(preview.entries[0].descriptionMissing, false);
+  assert.deepEqual(preview.entries[0].tickets, ['SCB-213']);
+  assert.equal(preview.entries[1].worklogTaskId, 77);
+  assert.equal(preview.entries[1].descriptionMissing, true);
+  assert.match(preview.summary, /Code Review \| Review maintenance mode PR \(SCB-213\)/);
+  assert.match(preview.summary, /Warning: 1 entry has no description/);
+
+  const payloads = [];
+  const result = await applyLogworkBatch({
+    batch: preview,
+    confirm: true,
+    submitEntry: async (payload) => {
+      payloads.push(payload);
+      return { dryRun: true };
+    }
+  });
+  assert.equal(payloads[0].description, 'Review maintenance mode PR (SCB-213)');
+  assert.equal(payloads[0].worklogTaskId, 78);
+  assert.equal(payloads[1].description, undefined);
+  assert.equal(result.results[0].description, 'Review maintenance mode PR (SCB-213)');
+});
+
+test('previewLogworkBatch uses defaultWorklogTask and keeps free text as description', async () => {
+  const text = `Monday, 01 Jun 2026
++2 Implement maintenance mode UI (SCB-213)`;
+  const withoutDefault = await previewLogworkBatch({
+    text,
+    fetchProjects: async () => projectsByDate.get('2026-06-01'),
+    fetchWorklogTasks: async () => catalogTasks
+  });
+  assert.equal(withoutDefault.status, 'unresolved');
+  assert.equal(withoutDefault.entries[0].reason, 'worklog_task_required');
+  assert.match(withoutDefault.summary, /Available worklog tasks: Development, Code Review/);
+
+  const preview = await previewLogworkBatch({
+    text,
+    defaultWorklogTask: 'Development',
+    fetchProjects: async () => projectsByDate.get('2026-06-01'),
+    fetchWorklogTasks: async () => catalogTasks
+  });
+  assert.equal(preview.status, 'ready');
+  assert.equal(preview.entries[0].taskName, 'Development');
+  assert.equal(preview.entries[0].worklogTaskId, 77);
+  assert.equal(preview.entries[0].typeOfWork, 'create');
+  assert.equal(preview.entries[0].description, 'Implement maintenance mode UI (SCB-213)');
+  assert.equal(preview.entries[0].taskResolution.reason, 'default_worklog_task');
+  assert.equal(preview.defaultWorklogTask, 'Development');
+  assert.notEqual(preview.batchId, withoutDefault.batchId);
+
+  const byId = await previewLogworkBatch({
+    text,
+    defaultWorklogTask: '#78',
+    fetchProjects: async () => projectsByDate.get('2026-06-01'),
+    fetchWorklogTasks: async () => catalogTasks
+  });
+  assert.equal(byId.entries[0].worklogTaskId, 78);
+  assert.equal(byId.entries[0].taskName, 'Code Review');
+});
+
+test('batchId changes when only the description changes', () => {
+  const first = buildLogworkBatchPreview({
+    parsed: parseWeeklyLogText('Monday, 01 Jun 2026\n+1 Development | First description'),
+    projectsByDate
+  });
+  const second = buildLogworkBatchPreview({
+    parsed: parseWeeklyLogText('Monday, 01 Jun 2026\n+1 Development | Second description'),
+    projectsByDate
+  });
+  assert.notEqual(first.batchId, second.batchId);
 });
 
 test('previewLogworkBatch resolves worklog tasks when names match', async () => {
@@ -454,4 +559,25 @@ test('applyLogworkBatch verifies submitted date range after real submit', async 
   assert.deepEqual(verificationCalls, [
     { from: '2026-06-01', to: '2026-06-02', includeEntries: false }
   ]);
+});
+
+test('listWorklogTasks returns catalog tasks and the line format for agents', async () => {
+  const result = await listWorklogTasks({
+    projectId: '643',
+    fetchWorklogTasks: async (projectId) => {
+      assert.equal(projectId, 643);
+      return [
+        { id: 77, name: 'Development', description: 'Implement new features.', projectId: null, typeOfWork: 'create', isDefault: true },
+        { id: 90, name: 'Maintenance mode', projectId: 643, typeOfWork: null, isDefault: false }
+      ];
+    }
+  });
+
+  assert.equal(result.lineFormat, '+<hours> <worklog task> | <description>');
+  assert.deepEqual(result.tasks, [
+    { id: 77, name: 'Development', typeOfWork: 'create', description: 'Implement new features.', projectSpecific: false, isDefault: true },
+    { id: 90, name: 'Maintenance mode', typeOfWork: null, description: '', projectSpecific: true, isDefault: false }
+  ]);
+  assert.match(result.summary, /#77 Development \(create\): Implement new features\./);
+  await assert.rejects(() => listWorklogTasks({ projectId: 'abc', fetchWorklogTasks: async () => [] }), /projectId/);
 });

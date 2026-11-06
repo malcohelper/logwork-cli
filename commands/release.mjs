@@ -1,10 +1,7 @@
-#!/usr/bin/env node
-
-import { isMainModule } from './lib/entrypoint.mjs';
 import {
   formatReleaseDoctorReport,
   runReleaseDoctor
-} from './lib/release-doctor.mjs';
+} from '../lib/release-doctor.mjs';
 
 export function parseReleaseArgs(args = []) {
   const [command, ...rest] = args;
@@ -38,8 +35,12 @@ export function parseReleaseArgs(args = []) {
   return options;
 }
 
+export function run(args = []) {
+  return runReleaseCommand({ args });
+}
+
 export async function runReleaseCommand({
-  args = process.argv.slice(2),
+  args = [],
   stdout = console.log,
   stderr = console.error,
   runDoctor = runReleaseDoctor
@@ -63,7 +64,7 @@ export async function runReleaseCommand({
 
 function formatReleaseHelp() {
   return `Usage:
-  logwork-helper release doctor [--full]
+  logwork release doctor [--full]
 
 Checks release readiness before npm/GitHub publishing.
 
@@ -73,13 +74,4 @@ Commands:
 Options:
   --full    Also run npm test, npm audit, npm pack --dry-run, and git diff --check
 `;
-}
-
-if (isMainModule(import.meta.url)) {
-  runReleaseCommand().then((code) => {
-    process.exitCode = code;
-  }).catch((error) => {
-    console.error(error.message);
-    process.exit(1);
-  });
 }

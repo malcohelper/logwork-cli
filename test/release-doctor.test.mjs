@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { parseReleaseArgs } from '../release-cli.mjs';
+import { parseReleaseArgs } from '../commands/release.mjs';
 import {
   formatReleaseDoctorReport,
   runReleaseDoctor
@@ -18,11 +18,11 @@ test('release doctor passes fast checks for a publishable version', async () => 
       'git status --short --branch': ok('## main...origin/main\n'),
       'npm config get registry': ok('https://registry.npmjs.org/\n'),
       'npm whoami': ok('malco\n'),
-      'npm view logwork-helper version': ok('1.2.3\n'),
+      'npm view logwork-cli version': ok('1.2.3\n'),
       'git tag --list v1.2.4': ok(''),
       'git ls-remote --tags origin v1.2.4': ok(''),
       'gh auth status': ok("Token scopes: 'repo', 'workflow'\n"),
-      'gh release view v1.2.4 --repo tructran2598/logwork-helper': fail('release not found')
+      'gh release view v1.2.4 --repo malcohelper/logwork-cli': fail('release not found')
     })
   });
 
@@ -30,7 +30,7 @@ test('release doctor passes fast checks for a publishable version', async () => 
   assert.equal(result.status, 'ok');
   assert.equal(result.version, '1.2.4');
   assert.equal(result.checks.find((check) => check.name === 'npm latest').status, 'ok');
-  assert.match(formatReleaseDoctorReport(result), /Run `logwork-helper release doctor --full`/);
+  assert.match(formatReleaseDoctorReport(result), /Run `logwork release doctor --full`/);
 });
 
 test('release doctor reports blocking publish problems', async () => {
@@ -40,16 +40,16 @@ test('release doctor reports blocking publish problems', async () => {
       version: '1.2.4',
       rootDependency: true
     }),
-    readdirFn: async () => ['logwork-helper-1.2.4.tgz'],
+    readdirFn: async () => ['logwork-cli-1.2.4.tgz'],
     runCommand: fakeCommandRunner({
       'git status --short --branch': ok('## main...origin/main [ahead 1]\n M package.json\n'),
       'npm config get registry': ok('https://registry.npmjs.org/\n'),
       'npm whoami': fail('npm error code E401\nnpm error 401 Unauthorized'),
-      'npm view logwork-helper version': ok('1.2.4\n'),
+      'npm view logwork-cli version': ok('1.2.4\n'),
       'git tag --list v1.2.4': ok('v1.2.4\n'),
       'git ls-remote --tags origin v1.2.4': ok('abc\trefs/tags/v1.2.4\n'),
       'gh auth status': fail('not logged in'),
-      'gh release view v1.2.4 --repo tructran2598/logwork-helper': ok('v1.2.4\n')
+      'gh release view v1.2.4 --repo malcohelper/logwork-cli': ok('v1.2.4\n')
     })
   });
 
@@ -77,15 +77,15 @@ test('release doctor full mode runs slow gates', async () => {
         'git status --short --branch': ok('## main...origin/main\n'),
         'npm config get registry': ok('https://registry.npmjs.org/\n'),
         'npm whoami': ok('malco\n'),
-        'npm view logwork-helper version': ok('1.2.3\n'),
+        'npm view logwork-cli version': ok('1.2.3\n'),
         'git tag --list v1.2.4': ok(''),
         'git ls-remote --tags origin v1.2.4': ok(''),
         'gh auth status': ok("Token scopes: 'repo', 'workflow'\n"),
-        'gh release view v1.2.4 --repo tructran2598/logwork-helper': fail('release not found'),
+        'gh release view v1.2.4 --repo malcohelper/logwork-cli': fail('release not found'),
         'git diff --check': ok(''),
         'npm test': ok('tests passed\n'),
         'npm run audit:prod': ok('found 0 vulnerabilities\n'),
-        'npm pack --dry-run --cache /private/tmp/logwork-helper-npm-cache': ok('logwork-helper-1.2.4.tgz\n')
+        'npm pack --dry-run --cache /private/tmp/logwork-cli-npm-cache': ok('logwork-cli-1.2.4.tgz\n')
       })(command, args);
     }
   });
@@ -93,7 +93,7 @@ test('release doctor full mode runs slow gates', async () => {
   assert.equal(result.ok, true);
   assert.equal(result.full, true);
   assert.equal(result.checks.find((check) => check.name === 'npm test').status, 'ok');
-  assert.ok(calls.includes('npm pack --dry-run --cache /private/tmp/logwork-helper-npm-cache'));
+  assert.ok(calls.includes('npm pack --dry-run --cache /private/tmp/logwork-cli-npm-cache'));
 });
 
 test('release CLI parser supports doctor full mode', () => {
@@ -119,28 +119,28 @@ function fakePackageReader({
   return async (filePath) => {
     if (filePath === join('/repo', 'package.json')) {
       return JSON.stringify({
-        name: 'logwork-helper',
+        name: 'logwork-cli',
         version,
         repository: {
           type: 'git',
-          url: 'git+https://github.com/tructran2598/logwork-helper.git'
+          url: 'git+https://github.com/malcohelper/logwork-cli.git'
         },
         dependencies: rootDependency
-          ? { 'logwork-helper': 'file:logwork-helper-1.2.4.tgz' }
+          ? { 'logwork-cli': 'file:logwork-cli-1.2.4.tgz' }
           : {}
       });
     }
 
     if (filePath === join('/repo', 'package-lock.json')) {
       return JSON.stringify({
-        name: 'logwork-helper',
+        name: 'logwork-cli',
         version: lockVersion,
         packages: {
           '': {
-            name: 'logwork-helper',
+            name: 'logwork-cli',
             version: lockVersion,
             dependencies: rootDependency
-              ? { 'logwork-helper': 'file:logwork-helper-1.2.4.tgz' }
+              ? { 'logwork-cli': 'file:logwork-cli-1.2.4.tgz' }
               : {}
           }
         }

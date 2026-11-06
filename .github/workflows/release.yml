@@ -1,0 +1,86 @@
+name: Release
+
+# Runs after CI passes on main. When package.json carries a version that has no
+# v<version> tag yet, it publishes that version to npm, then creates the tag and
+# a GitHub Release whose description is the matching CHANGELOG.md section.
+# Re-running is safe: an already published npm version or existing release is
+# skipped.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: macos-latest
+    steps:
+      - name: Check out the tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          NAME=$(node -p "require('./package.json').name")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "tagged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tagged=false" >> "$GITHUB_OUTPUT"
+          fi
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Nothing to release
+        if: steps.version.outputs.tagged == 'true' && steps.version.outputs.published == 'true'
+        run: echo "v${{ steps.version.outputs.version }} is already tagged and published."
+
+      - name: Extract release notes
+        if: steps.version.outputs.tagged == 'false' || steps.version.outputs.published == 'false'
+        run: node scripts/release-notes.mjs "${{ steps.version.outputs.version }}" > "$RUNNER_TEMP/release-notes.md"
+
+      - name: Install dependencies
+        if: steps.version.outputs.published == 'false'
+        run: npm ci
+
+      - name: Publish to npm
+        if: steps.version.outputs.published == 'false'
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create tag and GitHub Release
+        if: steps.version.outputs.tagged == 'false'
+        run: |
+          gh release create "v${{ steps.version.outputs.version }}" \
+            --target "${{ github.event.workflow_run.head_sha || github.sha }}" \
+            --title "v${{ steps.version.outputs.version }}" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --latest
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -87,8 +87,8 @@ test('platform credential storage creates Windows token and email targets', asyn
   await tokenStorage.set('token-session');
   await emailStorage.set('user@example.com');
 
-  assert.equal(requests[0].target, 'logwork-helper:resourceoptimiser');
-  assert.equal(requests[1].target, 'logwork-helper:resourceoptimiser-email');
+  assert.equal(requests[0].target, 'logwork-cli:resourceoptimiser');
+  assert.equal(requests[1].target, 'logwork-cli:resourceoptimiser-email');
 });
 
 test('platform credential storage creates separate Jira target', async () => {
@@ -103,12 +103,12 @@ test('platform credential storage creates separate Jira target', async () => {
 
   await jiraStorage.set('jira-session');
 
-  assert.equal(requests[0].target, 'logwork-helper:jira');
+  assert.equal(requests[0].target, 'logwork-cli:jira');
   assert.equal(requests[0].username, 'jira');
 });
 
 test('Windows credential target includes service and account', () => {
-  assert.equal(windowsCredentialTarget('logwork-helper', 'resourceoptimiser'), 'logwork-helper:resourceoptimiser');
+  assert.equal(windowsCredentialTarget('logwork-cli', 'resourceoptimiser'), 'logwork-cli:resourceoptimiser');
 });
 
 test('Windows Credential Manager stores, reads, and deletes a test credential', {
@@ -153,7 +153,7 @@ test('PowerShell credential runner sends request JSON over stdin', async () => {
 
   const result = await runPowerShellCredentialCommand({
     action: 'set',
-    target: 'logwork-helper:resourceoptimiser',
+    target: 'logwork-cli:resourceoptimiser',
     username: 'resourceoptimiser',
     value: 'secret'
   }, {
@@ -167,7 +167,7 @@ test('PowerShell credential runner sends request JSON over stdin', async () => {
 
   assert.deepEqual(JSON.parse(stdinText), {
     action: 'set',
-    target: 'logwork-helper:resourceoptimiser',
+    target: 'logwork-cli:resourceoptimiser',
     username: 'resourceoptimiser',
     value: 'secret'
   });

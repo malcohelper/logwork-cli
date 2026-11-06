@@ -31,3 +31,21 @@ not a valid entry`);
   assert.match(parsed.errors[0].message, /before a valid date heading/);
   assert.match(parsed.errors[1].message, /Invalid line format/);
 });
+
+test('parseWeeklyLogText splits worklog task and description on the first pipe', () => {
+  const result = parseWeeklyLogText(`Monday, 01 Jun 2026
++2 Code Review | Review PR | follow-up (SCB-213)
++1 Development
++1 | missing task`);
+
+  assert.equal(result.entries.length, 2);
+  assert.equal(result.entries[0].taskName, 'Code Review');
+  assert.equal(result.entries[0].description, 'Review PR | follow-up (SCB-213)');
+  assert.equal(result.entries[0].taskExplicit, true);
+  assert.deepEqual(result.entries[0].tickets, ['SCB-213']);
+  assert.equal(result.entries[1].taskName, 'Development');
+  assert.equal(result.entries[1].description, '');
+  assert.equal(result.entries[1].taskExplicit, false);
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0].message, /Worklog task name is empty/);
+});

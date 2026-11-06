@@ -19,163 +19,144 @@ import {
   setCachedPreview,
   setCachedJiraPreview,
   setCachedRoEditPreview
-} from '../mcp-server.mjs';
+} from '../lib/mcp-server.mjs';
 
 test('MCP server lists logwork tools over stdio', async () => {
-  const helperHome = await mkdtemp(join(tmpdir(), 'logwork-helper-home-'));
+  const helperHome = await mkdtemp(join(tmpdir(), 'logwork-cli-home-'));
   const client = new Client({
-    name: 'logwork-helper-test-client',
+    name: 'logwork-test-client',
     version: '0.1.0'
   });
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: ['mcp-server.mjs'],
+    args: ['bin/logwork.mjs', 'mcp'],
     cwd: process.cwd(),
     env: {
-      LOGWORK_HELPER_HOME: helperHome
+      LOGWORK_HOME: helperHome
     },
     stderr: 'pipe'
   });
 
   try {
     await client.connect(transport);
+    assert.equal(client.getServerVersion().name, 'logwork');
     const result = await client.listTools();
     const names = result.tools.map((tool) => tool.name).sort();
     assert.deepEqual(names, [
-      'apply_jira_worklog_batch',
-      'apply_logwork_batch',
-      'apply_ro_logwork_delete',
-      'apply_ro_logwork_edit',
-      'apply_ro_logwork_resubmit',
-      'apply_update',
-      'check_for_updates',
-      'configure_logwork_reminder',
-      'delete_ro_logwork_entry',
+      'delete_entry',
+      'edit_entry',
+      'get_history',
       'get_jira_issue',
-      'get_logwork_reminder',
-      'list_logwork_projects',
-      'preview_jira_worklog_batch',
-      'preview_logwork_batch',
-      'preview_ro_logwork_delete',
-      'preview_ro_logwork_edit',
-      'preview_ro_logwork_resubmit',
-      'query_apply_history',
-      'query_logwork',
-      'reconcile_logwork',
-      'start_auth_login',
-      'start_jira_auth',
-      'test_logwork_reminder',
-      'upsert_project_mapping'
+      'get_logwork',
+      'list_projects',
+      'list_tasks',
+      'log_jira_work',
+      'log_work',
+      'login',
+      'map_project',
+      'reconcile',
+      'reminder',
+      'resubmit_entry',
+      'update'
     ]);
-    const applyTool = result.tools.find((tool) => tool.name === 'apply_logwork_batch');
-    assert.match(applyTool.description, /Resource Optimiser only/);
-    assert.match(applyTool.description, /Does not write Jira/);
-    assert.equal(applyTool.inputSchema.properties.allowUnbooked.type, 'boolean');
-    assert.equal(applyTool.inputSchema.properties.projectOverrides.type, 'object');
-    const setupTool = result.tools.find((tool) => tool.name === 'upsert_project_mapping');
-    assert.equal(setupTool.inputSchema.properties.confirm.type, 'boolean');
-    assert.deepEqual(setupTool.inputSchema.properties.scope.enum, ['user', 'project']);
-    const queryTool = result.tools.find((tool) => tool.name === 'query_logwork');
-    assert.deepEqual(queryTool.inputSchema.properties.period.enum, ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month']);
-    assert.equal(queryTool.inputSchema.properties.date, undefined);
-    assert.equal(queryTool.inputSchema.properties.from, undefined);
-    assert.equal(queryTool.inputSchema.properties.to, undefined);
-    const roEditPreviewTool = result.tools.find((tool) => tool.name === 'preview_ro_logwork_edit');
-    assert.match(roEditPreviewTool.description, /Project and date are always preserved/);
-    assert.deepEqual(Object.keys(roEditPreviewTool.inputSchema.properties).sort(), ['hours', 'logworkId', 'taskName']);
-    const roEditApplyTool = result.tools.find((tool) => tool.name === 'apply_ro_logwork_edit');
-    assert.deepEqual(Object.keys(roEditApplyTool.inputSchema.properties).sort(), ['confirm', 'preview', 'previewId']);
-    assert.equal(roEditApplyTool.inputSchema.properties.confirm.type, 'boolean');
-    const reconciliationTool = result.tools.find((tool) => tool.name === 'reconcile_logwork');
-    assert.match(reconciliationTool.description, /Read-only/);
-    assert.deepEqual(reconciliationTool.inputSchema.properties.period.enum, ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month']);
-    assert.equal(reconciliationTool.inputSchema.properties.date, undefined);
-    assert.equal(reconciliationTool.inputSchema.properties.from, undefined);
-    assert.equal(reconciliationTool.inputSchema.properties.to, undefined);
-    assert.equal(reconciliationTool.inputSchema.properties.confirm, undefined);
-    assert.equal(reconciliationTool.inputSchema.properties.token, undefined);
-    const historyTool = result.tools.find((tool) => tool.name === 'query_apply_history');
-    assert.deepEqual(historyTool.inputSchema.properties.target.enum, ['ro', 'jira', 'both']);
-    assert.equal(historyTool.inputSchema.properties.token, undefined);
-    const updateCheckTool = result.tools.find((tool) => tool.name === 'check_for_updates');
-    assert.deepEqual(Object.keys(updateCheckTool.inputSchema.properties), ['force']);
-    const applyUpdateTool = result.tools.find((tool) => tool.name === 'apply_update');
-    assert.deepEqual(Object.keys(applyUpdateTool.inputSchema.properties).sort(), ['confirm', 'version']);
-    assert.equal(applyUpdateTool.inputSchema.properties.confirm.type, 'boolean');
-    assert.equal(applyUpdateTool.inputSchema.properties.command, undefined);
-    assert.equal(applyUpdateTool.inputSchema.properties.registry, undefined);
-    assert.equal(applyUpdateTool.inputSchema.properties.token, undefined);
-    const reminderStatusTool = result.tools.find((tool) => tool.name === 'get_logwork_reminder');
-    assert.deepEqual(reminderStatusTool.inputSchema.properties, {});
-    const reminderConfigTool = result.tools.find((tool) => tool.name === 'configure_logwork_reminder');
-    assert.deepEqual(reminderConfigTool.inputSchema.properties.action.enum, ['enable', 'disable']);
-    assert.deepEqual(reminderConfigTool.inputSchema.properties.target.enum, ['ro', 'jira', 'both']);
-    assert.equal(reminderConfigTool.inputSchema.properties.confirm.type, 'boolean');
-    assert.equal(reminderConfigTool.inputSchema.properties.command, undefined);
-    assert.equal(reminderConfigTool.inputSchema.properties.path, undefined);
-    assert.equal(reminderConfigTool.inputSchema.properties.token, undefined);
-    const reminderTestTool = result.tools.find((tool) => tool.name === 'test_logwork_reminder');
-    assert.deepEqual(Object.keys(reminderTestTool.inputSchema.properties).sort(), ['confirm', 'target']);
-    const authTool = result.tools.find((tool) => tool.name === 'start_auth_login');
-    assert.deepEqual(authTool.inputSchema.properties, {});
-    assert.equal(authTool.inputSchema.properties.password, undefined);
-    assert.equal(authTool.inputSchema.properties.otp, undefined);
-    const jiraAuthTool = result.tools.find((tool) => tool.name === 'start_jira_auth');
-    assert.deepEqual(jiraAuthTool.inputSchema.properties, {});
-    const jiraIssueTool = result.tools.find((tool) => tool.name === 'get_jira_issue');
-    assert.deepEqual(Object.keys(jiraIssueTool.inputSchema.properties), ['issueKey']);
-    const jiraPreviewTool = result.tools.find((tool) => tool.name === 'preview_jira_worklog_batch');
-    assert.match(jiraPreviewTool.description, /Jira only/);
-    assert.deepEqual(Object.keys(jiraPreviewTool.inputSchema.properties), ['text']);
-    const jiraApplyTool = result.tools.find((tool) => tool.name === 'apply_jira_worklog_batch');
-    assert.match(jiraApplyTool.description, /Does not write Resource Optimiser/);
-    assert.deepEqual(Object.keys(jiraApplyTool.inputSchema.properties).sort(), ['batch', 'batchId', 'confirm']);
-    assert.equal(jiraApplyTool.inputSchema.properties.confirm.type, 'boolean');
-    for (const tool of [roEditPreviewTool, roEditApplyTool, jiraAuthTool, jiraIssueTool, jiraPreviewTool, jiraApplyTool]) {
-      assert.equal(tool.inputSchema.properties.password, undefined);
-      assert.equal(tool.inputSchema.properties.pat, undefined);
-      assert.equal(tool.inputSchema.properties.token, undefined);
-      assert.equal(tool.inputSchema.properties.username, undefined);
+    const tools = Object.fromEntries(result.tools.map((tool) => [tool.name, tool]));
+    const params = (name) => Object.keys(tools[name].inputSchema.properties || {}).sort();
+
+    const instructions = client.getInstructions();
+    assert.match(instructions, /\+<hours> <worklog task> \| <description>/);
+    assert.match(instructions, /confirm: true/);
+    assert.match(instructions, /get_logwork \(what is booked\/logged\) -> list_projects -> list_tasks/);
+    assert.doesNotMatch(instructions, /preview_|apply_|start_auth_login/);
+
+    for (const tool of result.tools) {
+      assert.ok(tool.title, `${tool.name} has a title`);
+      assert.ok(tool.description, `${tool.name} has a description`);
+      assert.ok(tool.annotations, `${tool.name} has annotations`);
+      assert.equal(typeof tool.annotations.readOnlyHint, 'boolean', `${tool.name} declares readOnlyHint`);
+      for (const [param, schema] of Object.entries(tool.inputSchema.properties || {})) {
+        assert.ok(schema.description, `${tool.name}.${param} has a description`);
+        assert.ok(!['password', 'otp', 'pat', 'token', 'username'].includes(param), `${tool.name} never accepts ${param}`);
+      }
     }
 
-    const preview = await client.callTool({
-      name: 'preview_logwork_batch',
-      arguments: {
-        text: 'not a valid weekly log'
-      }
-    });
+    for (const name of ['get_logwork', 'list_projects', 'list_tasks', 'get_jira_issue', 'reconcile', 'get_history']) {
+      assert.equal(tools[name].annotations.readOnlyHint, true, `${name} is read-only`);
+    }
+    for (const name of ['edit_entry', 'delete_entry']) {
+      assert.equal(tools[name].annotations.destructiveHint, true, `${name} is destructive`);
+    }
+    for (const name of ['log_work', 'log_jira_work', 'resubmit_entry']) {
+      assert.equal(tools[name].annotations.readOnlyHint, false);
+      assert.equal(tools[name].annotations.destructiveHint, false);
+      assert.match(tools[name].description, /Two calls/);
+      assert.equal(tools[name].inputSchema.properties.confirm.type, 'boolean');
+    }
+
+    assert.deepEqual(params('log_work'), ['allowUnbooked', 'batchId', 'confirm', 'defaultWorklogTask', 'projectOverrides', 'text', 'typeOfWork']);
+    assert.match(tools.log_work.description, /Resource Optimiser only/);
+    assert.match(tools.log_work.description, /Use log_jira_work for Jira/);
+    assert.deepEqual(params('log_jira_work'), ['batchId', 'confirm', 'text']);
+    assert.match(tools.log_jira_work.description, /Jira only/);
+    assert.deepEqual(params('edit_entry'), ['confirm', 'description', 'hours', 'logworkId', 'previewId', 'taskName', 'typeOfWork']);
+    assert.match(tools.edit_entry.description, /Project and date never change/);
+    assert.match(tools.edit_entry.description, /replaces the entry/);
+    assert.deepEqual(params('resubmit_entry'), ['confirm', 'description', 'hours', 'logworkId', 'noteToPm', 'previewId', 'typeOfWork']);
+    assert.deepEqual(params('delete_entry'), ['confirm', 'logworkId', 'previewId']);
+    assert.deepEqual(params('list_tasks'), ['projectId']);
+    assert.deepEqual(params('get_logwork'), ['includeEntries', 'period', 'project']);
+    assert.deepEqual(tools.get_logwork.inputSchema.properties.period.enum, ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month']);
+    assert.deepEqual(params('reconcile'), ['period']);
+    assert.deepEqual(tools.get_history.inputSchema.properties.target.enum, ['ro', 'jira', 'both']);
+    assert.deepEqual(params('map_project'), ['confirm', 'keywords', 'projectMemberId', 'projectName', 'scope', 'tickets']);
+    assert.deepEqual(tools.map_project.inputSchema.properties.scope.enum, ['user', 'project']);
+    assert.deepEqual(params('login'), ['target']);
+    assert.deepEqual(tools.login.inputSchema.properties.target.enum, ['ro', 'jira']);
+    assert.deepEqual(params('reminder'), ['action', 'confirm', 'target', 'time']);
+    assert.deepEqual(tools.reminder.inputSchema.properties.action.enum, ['status', 'enable', 'disable', 'test']);
+    assert.deepEqual(params('update'), ['action', 'confirm', 'force', 'version']);
+    assert.deepEqual(params('get_jira_issue'), ['issueKey']);
+
+    const call = (name, args) => client.callTool({ name, arguments: args });
+
+    const preview = await call('log_work', { text: 'not a valid weekly log' });
     assert.notEqual(preview.isError, true);
     assert.match(preview.content[0].text, /parse errors/);
 
-    const rejectedUpdate = await client.callTool({
-      name: 'apply_update',
-      arguments: {
-        version: '0.1.11',
-        confirm: false
-      }
-    });
+    const applyWithText = await call('log_work', { text: 'Monday, 01 Jun 2026\n+1 Bug Fix | x', confirm: true });
+    assert.equal(applyWithText.isError, true);
+    assert.match(applyWithText.content[0].text, /do not pass text/);
+
+    const applyWithoutId = await call('log_work', { confirm: true });
+    assert.equal(applyWithoutId.isError, true);
+    assert.match(applyWithoutId.content[0].text, /requires the batchId/);
+
+    const previewWithoutText = await call('log_work', {});
+    assert.equal(previewWithoutText.isError, true);
+    assert.match(previewWithoutText.content[0].text, /log_work preview needs text/);
+
+    const editWithoutId = await call('edit_entry', { hours: 1 });
+    assert.equal(editWithoutId.isError, true);
+    assert.match(editWithoutId.content[0].text, /edit_entry preview needs logworkId/);
+
+    const editApplyWithChanges = await call('edit_entry', { previewId: 'ro_edit_x', hours: 2, confirm: true });
+    assert.equal(editApplyWithChanges.isError, true);
+    assert.match(editApplyWithChanges.content[0].text, /applies the approved preview as-is; do not pass hours/);
+
+    const deleteUnknown = await call('delete_entry', { previewId: 'delete_1', confirm: true });
+    assert.equal(deleteUnknown.isError, true);
+    assert.match(deleteUnknown.content[0].text, /No cached delete_entry preview/);
+
+    const rejectedUpdate = await call('update', { action: 'install', version: '0.1.11' });
     assert.equal(rejectedUpdate.isError, true);
     assert.match(rejectedUpdate.content[0].text, /requires confirm: true/);
 
-    const rejectedReminder = await client.callTool({
-      name: 'configure_logwork_reminder',
-      arguments: {
-        action: 'enable',
-        confirm: false
-      }
-    });
+    const rejectedReminder = await call('reminder', { action: 'enable', confirm: false });
     assert.equal(rejectedReminder.isError, true);
     assert.match(rejectedReminder.content[0].text, /requires confirm: true/);
 
-    const rejectedRoEdit = await client.callTool({
-      name: 'apply_ro_logwork_edit',
-      arguments: {
-        previewId: 'ro_edit_test',
-        confirm: false
-      }
-    });
-    assert.equal(rejectedRoEdit.isError, true);
-    assert.match(rejectedRoEdit.content[0].text, /requires confirm: true/);
+    const jiraLogin = await call('login', { target: 'jira' });
+    assert.notEqual(jiraLogin.isError, true);
+    assert.match(jiraLogin.content[0].text, /logwork login jira/);
   } finally {
     await client.close();
   }
@@ -184,7 +165,7 @@ test('MCP server lists logwork tools over stdio', async () => {
 test('MCP apply rejects final project overrides at boundary', () => {
   assert.throws(() => assertNoFinalProjectOverrides({
     entry_1: 5352
-  }), /no longer accepts final projectOverrides/);
+  }), /belong to the log_work preview call/);
 });
 
 test('MCP preview cache expires old previews and caps stored batches', () => {
@@ -238,21 +219,21 @@ test('MCP apply requires cached preview provenance', () => {
     cache,
     batch: preview,
     now
-  }), /requires batchId/);
+  }), /requires the batchId/);
 
   assert.throws(() => resolveApprovedBatch({
     cache,
     batchId: preview.batchId,
     batch: preview,
     now
-  }), /Missing cached preview/);
+  }), /No cached log_work preview/);
 
   setCachedPreview(cache, preview, now);
   assert.throws(() => resolveApprovedBatch({
     cache,
     batchId: preview.batchId,
     now: now + 60 * 60 * 1000
-  }), /Missing cached preview/);
+  }), /No cached log_work preview/);
 });
 
 test('MCP apply rejects mutated approved batch content', () => {
@@ -318,7 +299,7 @@ test('MCP apply consumes cached approval before submit work can await', () => {
     cache,
     batchId: preview.batchId,
     now
-  }), /Missing cached preview/);
+  }), /No cached log_work preview/);
 });
 
 test('MCP Jira preview cache expires old previews and caps stored batches', () => {
@@ -347,21 +328,21 @@ test('MCP Jira apply requires cached preview provenance', () => {
     cache,
     batch: preview,
     now
-  }), /requires batchId/);
+  }), /requires the batchId/);
 
   assert.throws(() => resolveApprovedJiraBatch({
     cache,
     batchId: preview.batchId,
     batch: preview,
     now
-  }), /Missing cached Jira preview/);
+  }), /No cached log_jira_work preview/);
 
   setCachedJiraPreview(cache, preview, now);
   assert.throws(() => resolveApprovedJiraBatch({
     cache,
     batchId: preview.batchId,
     now: now + 60 * 60 * 1000
-  }), /Missing cached Jira preview/);
+  }), /No cached log_jira_work preview/);
 });
 
 test('MCP Jira apply rejects mutated approved batch content', () => {
@@ -536,3 +517,20 @@ function createApprovedRoEditPreview() {
     summary: 'RO edit ready.'
   };
 }
+
+test('MCP resubmit and delete previews are cached by previewId (regression)', () => {
+  const cache = new Map();
+  const now = 1_000;
+  const deletePreview = {
+    previewId: 'delete_304032',
+    status: 'ready',
+    logworkId: 304032,
+    original: { id: 304032, hours: 1, status: 'approved', taskName: 'Bug Fix' },
+    originalFingerprint: 'fp',
+    summary: 'RO logwork delete preview'
+  };
+  setCachedRoEditPreview(cache, deletePreview, now);
+  const approved = consumeApprovedRoEditPreview({ cache, previewId: 'delete_304032', toolName: 'delete_entry', now });
+  assert.equal(approved.logworkId, 304032);
+  assert.throws(() => consumeApprovedRoEditPreview({ cache, previewId: 'delete_304032', toolName: 'delete_entry', now }), /No cached delete_entry preview/);
+});

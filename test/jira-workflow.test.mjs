@@ -278,3 +278,16 @@ function fakeIssue(issueKey) {
     }
   };
 }
+
+test('Jira preview uses the description as worklog comment for task | description lines', async () => {
+  const preview = await previewJiraWorklogBatch({
+    text: `Monday, 01 Jun 2026
++1 Code Review | Review maintenance PR (SCB-213)`,
+    getSession: async () => fakeSession(),
+    fetchIssue: async (issueKey) => fakeIssue(issueKey),
+    fetchWorklogs: async () => []
+  });
+
+  assert.equal(preview.entries[0].issueKey, 'SCB-213');
+  assert.match(preview.entries[0].worklog.comment, /^Review maintenance PR \(SCB-213\)\n\n#lh:/);
+});

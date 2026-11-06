@@ -1,18 +1,15 @@
-#!/usr/bin/env node
-
 import { confirm, isCancel } from '@clack/prompts';
-import { isMainModule } from './lib/entrypoint.mjs';
 import {
   normalizeReminderTime,
   REMINDER_TARGETS
-} from './lib/reminder-config.mjs';
+} from '../lib/reminder-config.mjs';
 import {
   disableLogworkReminder,
   enableLogworkReminder,
   getLogworkReminderStatus,
   testLogworkReminder
-} from './lib/reminder-service.mjs';
-import { runScheduledReminder } from './lib/reminder-workflow.mjs';
+} from '../lib/reminder-service.mjs';
+import { runScheduledReminder } from '../lib/reminder-workflow.mjs';
 
 export function parseReminderArgs(args = []) {
   const [command = 'help', ...rest] = args;
@@ -103,7 +100,7 @@ export async function runReminderCli(args = [], {
 
   if (options.command === 'run') {
     if (options.home) {
-      process.env.LOGWORK_HELPER_HOME = options.home;
+      process.env.LOGWORK_HOME = options.home;
     }
     return run();
   }
@@ -150,10 +147,10 @@ export async function runReminderCli(args = [], {
 
 export function formatReminderHelp() {
   return `Usage:
-  logwork-helper reminder enable [--time HH:mm] [--target ro|jira|both] [--yes]
-  logwork-helper reminder status [--json]
-  logwork-helper reminder test [--target ro|jira|both] [--yes]
-  logwork-helper reminder disable [--yes]
+  logwork reminder enable [--time HH:mm] [--target ro|jira|both] [--yes]
+  logwork reminder status [--json]
+  logwork reminder test [--target ro|jira|both] [--yes]
+  logwork reminder disable [--yes]
 
 The reminder runs Monday-Friday at 17:00 by default. It uses launchd on macOS and Task Scheduler on Windows. RO compares logged and booked hours; Jira checks whether the current user has a worklog today.`;
 }
@@ -172,11 +169,4 @@ async function defaultConfirm(message) {
 
 function printResult(result, json, print) {
   print(json ? JSON.stringify(result, null, 2) : result.summary);
-}
-
-if (isMainModule(import.meta.url)) {
-  runReminderCli(process.argv.slice(2)).catch((error) => {
-    console.error(`Reminder error: ${error.message}`);
-    process.exitCode = 1;
-  });
 }

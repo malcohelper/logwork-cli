@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildConfig, CONFIG } from '../config.mjs';
+import { buildConfig, CONFIG } from '../lib/config.mjs';
 
 test('CONFIG keeps the default Vinova Resource Optimiser profile', () => {
   assert.equal(CONFIG.profile, 'vinova');

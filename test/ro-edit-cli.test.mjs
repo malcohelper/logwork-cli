@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { runRoEditCommand } from '../edit-logwork-cli.mjs';
+import { runRoEditCommand } from '../commands/edit.mjs';
 import { parseRoEditArgs } from '../lib/ro-edit-args.mjs';
 
 test('RO edit CLI parses hours and multi-word task name', () => {
@@ -14,6 +14,8 @@ test('RO edit CLI parses hours and multi-word task name', () => {
     logworkId: '290364',
     hours: 0.5,
     taskName: 'Hide View history',
+    description: undefined,
+    typeOfWork: undefined,
     yes: true,
     json: false,
     help: false
@@ -22,11 +24,29 @@ test('RO edit CLI parses hours and multi-word task name', () => {
     logworkId: '290364',
     hours: 1.25,
     taskName: undefined,
+    description: undefined,
+    typeOfWork: undefined,
     yes: false,
     json: false,
     help: false
   });
-  assert.throws(() => parseRoEditArgs(['290364']), /requires --hours and\/or --task-name/);
+  assert.deepEqual(parseRoEditArgs([
+    '304032',
+    '--task', '#74',
+    '--description', 'Fix', 'date', 'picker', '(SAP-42)',
+    '--type=correct'
+  ]), {
+    logworkId: '304032',
+    hours: undefined,
+    taskName: '#74',
+    description: 'Fix date picker (SAP-42)',
+    typeOfWork: 'correct',
+    yes: false,
+    json: false,
+    help: false
+  });
+  assert.throws(() => parseRoEditArgs(['290364']), /requires at least one of --hours, --task, --desc, --type/);
+  assert.throws(() => parseRoEditArgs(['290364', '--type', 'fix']), /must be one of/);
   assert.throws(() => parseRoEditArgs(['290364', '--hours', '0']), /positive number/);
 });
 
@@ -39,7 +59,9 @@ test('RO edit CLI previews, confirms, and applies approved edit', async () => {
       assert.deepEqual(input, {
         logworkId: '290364',
         hours: 0.5,
-        taskName: undefined
+        taskName: undefined,
+        description: undefined,
+        typeOfWork: undefined
       });
       return preview;
     },
@@ -83,13 +105,15 @@ test('RO edit CLI requires explicit non-interactive approval and structured mode
 });
 
 test('main CLI exposes Resource Optimiser edit help', () => {
-  const result = spawnSync(process.execPath, ['cli.mjs', 'edit', '--help'], {
+  const result = spawnSync(process.execPath, ['bin/logwork.mjs', 'edit', '--help'], {
     cwd: process.cwd(),
     encoding: 'utf8'
   });
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /logwork-helper edit <logwork-id>/);
+  assert.match(result.stdout, /logwork edit <id>/);
   assert.match(result.stdout, /Project and date are preserved/);
+  assert.match(result.stdout, /--desc <text>/);
+  assert.match(result.stdout, /replaces the entry/);
 });
 
 function createPreview() {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { runRoDeleteCommand } from '../delete-logwork-cli.mjs';
+import { runRoDeleteCommand } from '../commands/delete.mjs';
 import { parseRoDeleteArgs } from '../lib/ro-delete-args.mjs';
 
 test('RO delete CLI parses logwork id and flags', () => {
@@ -47,12 +47,12 @@ test('RO delete CLI requires --yes in non-interactive mode', async () => {
 });
 
 test('main CLI exposes Resource Optimiser delete help', () => {
-  const result = spawnSync(process.execPath, ['cli.mjs', 'delete', '--help'], {
+  const result = spawnSync(process.execPath, ['bin/logwork.mjs', 'delete', '--help'], {
     cwd: process.cwd(),
     encoding: 'utf8'
   });
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /logwork-helper delete <logwork-id>/);
+  assert.match(result.stdout, /logwork delete <logwork-id>/);
   assert.match(result.stdout, /submitted or approved/);
 });
 

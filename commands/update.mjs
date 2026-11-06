@@ -1,12 +1,9 @@
-#!/usr/bin/env node
-
 import { confirm, isCancel } from '@clack/prompts';
-import { isMainModule } from './lib/entrypoint.mjs';
 import {
   checkForUpdates,
   installUpdate,
   parseSemver
-} from './lib/update-service.mjs';
+} from '../lib/update-service.mjs';
 
 export function parseUpdateArgs(argv) {
   const args = [...argv];
@@ -125,8 +122,8 @@ export async function runUpdateCli(argv, {
 
 export function formatUpdateHelp() {
   return `Usage:
-  logwork-helper update check [--force] [--json]
-  logwork-helper update install [--version <semver>] [--yes] [--json]
+  logwork update check [--force] [--json]
+  logwork update install [--version <semver>] [--yes] [--json]
 
 Commands:
   check    Compare the installed version with npm latest. Results are cached for 24 hours.
@@ -156,18 +153,9 @@ function printResult(output, result, json) {
   output.write(`${result.summary}\n`);
   if (result.updateAvailable) {
     output.write(`Release: ${result.releaseUrl}\n`);
-    output.write('Install: logwork-helper update install\n');
+    output.write('Install: logwork update install\n');
   }
   if (result.warning) {
     output.write(`Warning: ${result.warning}\n`);
   }
-}
-
-if (isMainModule(import.meta.url)) {
-  runUpdateCli(process.argv.slice(2)).then((code) => {
-    process.exitCode = code;
-  }).catch((error) => {
-    console.error(error.message);
-    process.exit(1);
-  });
 }

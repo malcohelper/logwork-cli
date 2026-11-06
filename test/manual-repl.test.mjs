@@ -132,7 +132,7 @@ test('manual command registry renders help and slash suggestions', () => {
 });
 
 test('Ink manual components render shell, current panel, pickers, menu, status, and chart text', () => {
-  assert.match(renderToString(h(HeaderBar, { cwd: '/tmp/repo' })), /Logwork Helper/);
+  assert.match(renderToString(h(HeaderBar, { cwd: '/tmp/repo' })), /Logwork/);
   assert.match(renderToString(h(HeaderBar, { cwd: '/tmp/repo' })), /cwd: \/tmp\/repo/);
   assert.match(renderToString(h(SlashMenu, {
     suggestions: getCommandSuggestions('/pro'),
@@ -434,11 +434,13 @@ test('parseManualCommand supports visible commands and rejects exit aliases', ()
     type: 'logwork',
     text: 'Monday, 01 Jun 2026'
   });
-  assert.deepEqual(parseManualCommand('/edit-logwork 290364 --hours 0.5 --task-name Updated task'), {
+  assert.deepEqual(parseManualCommand('/edit-logwork 290364 --hours 0.5 --task-name Bug Fix --description Fix date picker (SAP-42) --type correct'), {
     type: 'edit_ro_logwork',
     logworkId: '290364',
     hours: 0.5,
-    taskName: 'Updated task'
+    taskName: 'Bug Fix',
+    description: 'Fix date picker (SAP-42)',
+    typeOfWork: 'correct'
   });
   assert.deepEqual(parseManualCommand('/auth ro'), {
     type: 'auth',
@@ -496,21 +498,22 @@ test('parseManualCommand supports visible commands and rejects exit aliases', ()
   assert.throws(() => parseManualCommand('/auth both'), /Usage: \/auth/);
   assert.throws(() => parseManualCommand('/status both'), /Usage: \/status/);
   assert.throws(() => parseManualCommand('/preview'), /Unknown command/);
-  assert.throws(() => parseManualCommand('/edit-logwork 290364'), /requires --hours/);
+  assert.throws(() => parseManualCommand('/edit-logwork 290364'), /requires at least one of --hours/);
   assert.throws(() => parseManualCommand('/edit-logwork 290364 --hours 1 --yes'), /always previews and confirms/);
   assert.throws(() => parseManualCommand('/mcp unknown'), /Unknown MCP client/);
   assert.throws(() => parseManualCommand('/unknown'), /Unknown command/);
 });
 
 test('manual MCP setup formats copy-ready client configs', async () => {
-  const serverPath = '/tmp/logwork-helper/mcp-server.mjs';
+  const serverPath = '/tmp/logwork-cli/bin/logwork.mjs';
   const cursor = formatMcpSetup({
     client: 'cursor',
     serverPath
   });
   assert.match(cursor, /MCP setup: Cursor/);
   assert.match(cursor, /"mcpServers"/);
-  assert.match(cursor, /"args": \[\s+"\/tmp\/logwork-helper\/mcp-server\.mjs"/);
+  assert.match(cursor, /"logwork": \{/);
+  assert.match(cursor, /"args": \[\s+"\/tmp\/logwork-cli\/bin\/logwork\.mjs",\s+"mcp"\s+\]/);
 
   const copilot = formatMcpSetup({
     client: 'copilot',
@@ -524,21 +527,22 @@ test('manual MCP setup formats copy-ready client configs', async () => {
     client: 'claude-code',
     serverPath
   });
-  assert.match(claude, /claude mcp add --transport stdio logwork-helper -- node/);
+  assert.match(claude, /claude mcp add --transport stdio logwork -- node '\/tmp\/logwork-cli\/bin\/logwork\.mjs' mcp/);
   assert.match(claude, /project \.mcp\.json/);
 
   const windowsClaude = formatMcpSetup({
     client: 'claude-code',
-    serverPath: 'C:\\Users\\example\\.logwork-helper\\mcp-server.mjs',
+    serverPath: 'C:\\Users\\example\\.logwork-cli\\bin\\logwork.mjs',
     platform: 'win32'
   });
-  assert.match(windowsClaude, /node 'C:\\Users\\example\\.logwork-helper\\mcp-server\.mjs'/);
+  assert.match(windowsClaude, /node 'C:\\Users\\example\\.logwork-cli\\bin\\logwork\.mjs' mcp/);
 
   const codex = formatMcpSetup({
     client: 'codex',
     serverPath
   });
-  assert.match(codex, /\[mcp_servers\.logwork-helper\]/);
+  assert.match(codex, /\[mcp_servers\.logwork\]/);
+  assert.match(codex, /args = \[".*logwork\.mjs", "mcp"\]/);
   assert.match(codex, /tool_timeout_sec = 120/);
 
   assert.equal(resolveMcpClientSelection('2')?.key, 'antigravity');
@@ -576,7 +580,9 @@ test('manual RO edit previews and confirms before applying', async () => {
           assert.deepEqual(args, {
             logworkId: '290364',
             hours: 0.5,
-            taskName: undefined
+            taskName: undefined,
+            description: undefined,
+            typeOfWork: undefined
           });
           return editPreview;
         },
@@ -697,7 +703,7 @@ test('manual auth and status route Resource Optimiser and Jira targets', async (
   }));
 
   assert.match(printed.join('\n'), /RO auth complete/);
-  assert.match(printed.join('\n'), /logwork-helper jira login/);
+  assert.match(printed.join('\n'), /logwork login jira/);
   assert.match(printed.join('\n'), /Resource Optimiser: RO authenticated/);
   assert.match(printed.join('\n'), /Jira: Jira authenticated/);
 });
@@ -787,7 +793,7 @@ test('manual Jira logwork reports login command when auth is missing', async () 
       '+2 Maintenance mode (SCB-213)',
       '/end'
     ]
-  })), /logwork-helper jira login/);
+  })), /logwork login jira/);
 });
 
 test('manual both logwork previews and applies RO then Jira with separate confirmations', async () => {
@@ -845,6 +851,13 @@ test('manual logwork draft helpers build text, overrides, and live preview', asy
     taskName: 'check ui/ux',
     line: '+2 check ui/ux'
   });
+  assert.equal(
+    buildLogworkText({
+      date: '2026-06-01',
+      tasks: [parseTaskLine('+1.5 Development | check ui/ux (SCB-213)')]
+    }),
+    'Monday, 01 Jun 2026\n+1.5 Development | check ui/ux (SCB-213)'
+  );
 
   const draft = addDraftTask({
     draft: {

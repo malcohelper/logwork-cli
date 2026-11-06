@@ -1,24 +1,57 @@
-#!/usr/bin/env node
-
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { delimiter, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { redactText } from './lib/auth-redaction.mjs';
-import { credentialStoreLabel } from './lib/credential-store.mjs';
-import { isMainModule } from './lib/entrypoint.mjs';
-import { helperHome } from './lib/paths.mjs';
+import { redactText } from '../lib/auth-redaction.mjs';
+import { credentialStoreLabel } from '../lib/credential-store.mjs';
+import { helperHome } from '../lib/paths.mjs';
+import {
+  MCP_SERVER_NAME,
+  defaultMcpServerPath,
+  formatCodexToml,
+  stdioMcpServersConfig,
+  vscodeMcpConfig
+} from '../lib/manual-mcp.mjs';
+import { loadReminderConfig } from '../lib/reminder-config.mjs';
+import { installReminderScheduler } from '../lib/reminder-scheduler.mjs';
+
+// Package name before the rename. Its global install provides a `logwork` bin
+// that would block `npm link` of logwork-cli, so setup removes it first.
+const LEGACY_PACKAGE_NAME = 'logwork-helper';
+const PACKAGE_NAMES = ['logwork-cli', LEGACY_PACKAGE_NAME];
 
 const EXCLUDED_DIRS = new Set([
   '.git',
   'node_modules'
 ]);
 
-async function main() {
-  const options = parseSetupUserArgs(process.argv.slice(2));
-  const sourceDir = dirname(fileURLToPath(import.meta.url));
+// `logwork setup`: copy this package into ~/.logwork-cli, install its
+// dependencies, link the `logwork` command, refresh a migrated reminder, and
+// print the MCP configs.
+export async function run(argv = []) {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    console.log(formatSetupHelp());
+    return 0;
+  }
+  const options = parseSetupUserArgs(argv);
+  const sourceDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
   const targetDir = helperHome();
   await installUserRuntime({ options, sourceDir, targetDir });
+  return 0;
+}
+
+export function formatSetupHelp() {
+  return `Usage:
+  logwork setup [--login|--no-login]
+
+Installs the runtime to ~/.logwork-cli, links the \`logwork\` command, and prints
+MCP configs for Cursor, Antigravity, Claude Code, Codex and VS Code.
+Settings, mappings and the login session from an older logwork-helper install
+are carried over automatically.
+
+Options:
+  --login     Log in to Resource Optimiser after installing
+  --no-login  Do not ask to log in`;
 }
 
 export async function installUserRuntime({
@@ -31,6 +64,7 @@ export async function installUserRuntime({
   installFn = installDependencies,
   linkFn = linkGlobalBinaries,
   authFn = maybeRunAuthLogin,
+  reminderFn = refreshReminderSchedule,
   printFn = printMcpInstructions
 }) {
   await mkdirFn(targetDir, { recursive: true });
@@ -41,14 +75,32 @@ export async function installUserRuntime({
   await installFn(targetDir);
   const linkResult = await linkFn(targetDir);
   const authResult = await authFn(targetDir, options);
-  await printFn(targetDir, authResult, linkResult, cleanupResult);
+  const reminderResult = await reminderFn(targetDir);
+  await printFn(targetDir, authResult, linkResult, cleanupResult, reminderResult);
 
   return {
     targetDir,
     authResult,
     linkResult,
-    cleanupResult
+    cleanupResult,
+    reminderResult
   };
+}
+
+// A reminder enabled by an older install still points at the old runtime.
+// Re-register it so the OS scheduler runs this runtime (and the legacy entry
+// is removed by installReminderScheduler).
+async function refreshReminderSchedule(targetDir) {
+  try {
+    const config = await loadReminderConfig();
+    if (!config?.enabled) {
+      return null;
+    }
+    await installReminderScheduler(config, { home: targetDir });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
 }
 
 async function copyDirectory(sourceDir, targetDir, rootDir) {
@@ -126,9 +178,11 @@ export async function sanitizeRuntimeMetadata(targetDir, {
     writeFileFn,
     changes
   }, (json) => {
-    if (isStaleSelfDependency(json.dependencies?.['logwork-helper'])) {
-      delete json.dependencies['logwork-helper'];
-      changes.push('package.json dependencies.logwork-helper');
+    for (const name of PACKAGE_NAMES) {
+      if (isStaleSelfDependency(json.dependencies?.[name])) {
+        delete json.dependencies[name];
+        changes.push(`package.json dependencies.${name}`);
+      }
     }
     return json;
   });
@@ -138,21 +192,23 @@ export async function sanitizeRuntimeMetadata(targetDir, {
     writeFileFn,
     changes
   }, (json) => {
-    if (isStaleSelfDependency(json.packages?.['']?.dependencies?.['logwork-helper'])) {
-      delete json.packages[''].dependencies['logwork-helper'];
-      changes.push('package-lock.json packages[""].dependencies.logwork-helper');
-    }
-    if (json.packages?.['node_modules/logwork-helper']) {
-      delete json.packages['node_modules/logwork-helper'];
-      changes.push('package-lock.json packages["node_modules/logwork-helper"]');
-    }
-    if (json.dependencies?.['node_modules/logwork-helper']) {
-      delete json.dependencies['node_modules/logwork-helper'];
-      changes.push('package-lock.json dependencies["node_modules/logwork-helper"]');
-    }
-    if (isStaleSelfDependency(json.dependencies?.['logwork-helper']?.version)) {
-      delete json.dependencies['logwork-helper'];
-      changes.push('package-lock.json dependencies.logwork-helper');
+    for (const name of PACKAGE_NAMES) {
+      if (isStaleSelfDependency(json.packages?.['']?.dependencies?.[name])) {
+        delete json.packages[''].dependencies[name];
+        changes.push(`package-lock.json packages[""].dependencies.${name}`);
+      }
+      if (json.packages?.[`node_modules/${name}`]) {
+        delete json.packages[`node_modules/${name}`];
+        changes.push(`package-lock.json packages["node_modules/${name}"]`);
+      }
+      if (json.dependencies?.[`node_modules/${name}`]) {
+        delete json.dependencies[`node_modules/${name}`];
+        changes.push(`package-lock.json dependencies["node_modules/${name}"]`);
+      }
+      if (isStaleSelfDependency(json.dependencies?.[name]?.version)) {
+        delete json.dependencies[name];
+        changes.push(`package-lock.json dependencies.${name}`);
+      }
     }
     return json;
   });
@@ -184,13 +240,20 @@ async function updateJsonFile(path, { readFileFn, writeFileFn }, update) {
 }
 
 function isStaleSelfDependency(value) {
-  return typeof value === 'string' && /^file:.*logwork-helper.*\.tgz$/i.test(value);
+  return typeof value === 'string' && /^file:.*logwork-(helper|cli).*\.tgz$/i.test(value);
 }
 
 export async function linkGlobalBinaries(targetDir, {
   runner = runCommand,
   commandFinder = findCommandOnPath
 } = {}) {
+  // Best effort: drop the pre-rename global package so its `logwork` bin does
+  // not block linking this one. A no-op when it is not installed.
+  await runner('npm', ['rm', '-g', LEGACY_PACKAGE_NAME], {
+    cwd: targetDir,
+    stdio: 'ignore'
+  }).catch(() => {});
+
   try {
     await runner('npm', ['link'], {
       cwd: targetDir,
@@ -250,7 +313,7 @@ export function parseSetupUserArgs(args = []) {
       loginMode = 'skip';
       continue;
     }
-    throw new Error(`Unknown setup-user option: ${arg}`);
+    throw new Error(`Unknown setup option: ${arg}`);
   }
 
   return { loginMode };
@@ -286,7 +349,7 @@ async function shouldPromptLogin() {
   }
 
   const { confirm, isCancel } = await import('@clack/prompts');
-  const { getStoredAuthStatus } = await import('./lib/auth.mjs');
+  const { getStoredAuthStatus } = await import('../lib/auth.mjs');
   const status = await getStoredAuthStatus().catch(() => ({ authenticated: false }));
   if (status.authenticated) {
     return false;
@@ -305,12 +368,12 @@ async function shouldPromptLogin() {
 
 function runAuthLogin(targetDir) {
   return new Promise((resolveValue, reject) => {
-    const child = spawn(process.execPath, [resolve(targetDir, 'auth-cli.mjs'), 'login'], {
+    const child = spawn(process.execPath, [resolve(targetDir, 'bin', 'logwork.mjs'), 'login'], {
       cwd: targetDir,
       stdio: 'inherit',
       env: {
         ...process.env,
-        LOGWORK_HELPER_HOME: targetDir
+        LOGWORK_HOME: targetDir
       }
     });
     child.on('error', reject);
@@ -324,12 +387,13 @@ function runAuthLogin(targetDir) {
   });
 }
 
-function printMcpInstructions(targetDir, authResult = null, linkResult = null, cleanupResult = null) {
+function printMcpInstructions(targetDir, authResult = null, linkResult = null, cleanupResult = null, reminderResult = null) {
   console.log(formatSetupUserInstructions({
     targetDir,
     authResult,
     linkResult,
-    cleanupResult
+    cleanupResult,
+    reminderResult
   }));
 }
 
@@ -338,74 +402,51 @@ export function formatSetupUserInstructions({
   authResult = null,
   linkResult = null,
   cleanupResult = null,
+  reminderResult = null,
   platform = process.platform
 } = {}) {
-  const serverPath = resolve(targetDir, 'mcp-server.mjs');
+  const entryPath = resolve(targetDir, 'bin', 'logwork.mjs');
   const storeLabel = credentialStoreLabel({ platform });
   const sections = [
-    `Logwork Helper installed to ${targetDir}.`,
+    `logwork-cli installed to ${targetDir}.`,
     '',
     'Install status',
     `- Runtime: ${targetDir}`,
-    `- Dependencies: installed`,
+    '- Dependencies: installed',
     cleanupResult?.changed
-      ? '- Runtime metadata: removed stale local logwork-helper tarball dependency'
+      ? '- Runtime metadata: removed stale local tarball dependency'
       : '- Runtime metadata: ready',
     `- Auth: ${formatAuthStatus(authResult)}`,
+    ...(reminderResult ? [`- Reminder: ${reminderResult.ok ? 're-registered for this runtime' : `not refreshed (${redactText(reminderResult.error || 'unknown error')}); run \`logwork reminder enable\``}`] : []),
     '',
     formatTerminalCommandInstructions(linkResult),
     '',
     'Next steps',
     ...formatNextSteps(authResult),
     '',
-    'MCP config',
+    `MCP config (server name "${MCP_SERVER_NAME}", runs: node ${entryPath} mcp)`,
     '',
-    'Cursor / Antigravity mcp_config.json:',
-    JSON.stringify({
-      mcpServers: {
-        'logwork-helper': {
-          command: 'node',
-          args: [serverPath]
-        }
-      }
-    }, null, 2),
+    'Cursor / Antigravity / Claude Code (.mcp.json):',
+    JSON.stringify(stdioMcpServersConfig(entryPath), null, 2),
     '',
     'Codex config.toml:',
-    `[mcp_servers.logwork-helper]\ncommand = "node"\nargs = ["${serverPath}"]`,
+    formatCodexToml(entryPath),
     '',
     'GitHub Copilot / VS Code mcp.json:',
-    JSON.stringify({
-      servers: {
-        logworkHelper: {
-          type: 'stdio',
-          command: 'node',
-          args: [serverPath]
-        }
-      }
-    }, null, 2),
+    JSON.stringify(vscodeMcpConfig(entryPath), null, 2),
     '',
     'Verify',
     '- Restart or reload your IDE MCP tools after pasting config.',
     '- In the IDE, ask: Check my logwork for this week.',
-    '- If tools are missing, check the server path points to the mcp-server.mjs path above.',
+    '- An old "logwork-helper" MCP entry can be deleted; it points at the old runtime.',
     '',
     'Safety',
     '- Do not paste passwords, 2FA codes, Bearer tokens, cookies, or raw curl auth logs into AI chat.',
     `- MCP config only needs command and args; tokens stay in ${storeLabel}.`,
-    '- Project mappings are stored separately and never store Resource Optimiser tokens.',
-    '',
-    'Optional Git hook install:',
-    `  ${formatGitHookInstallCommand(targetDir, platform)}`
+    '- Project mappings are stored separately and never store Resource Optimiser tokens.'
   ];
 
   return sections.join('\n');
-}
-
-function formatGitHookInstallCommand(targetDir, platform) {
-  if (platform === 'win32') {
-    return 'logwork-helper install-hook C:\\path\\to\\project-repo';
-  }
-  return `${resolve(targetDir, 'setup.sh')} /path/to/project-repo`;
 }
 
 function formatAuthStatus(authResult) {
@@ -422,8 +463,8 @@ function formatNextSteps(authResult) {
   const steps = [];
   let index = 1;
   if (!authResult?.ok) {
-    steps.push(`${index}. Authenticate Resource Optimiser:`);
-    steps.push('   logwork-helper auth login');
+    steps.push(`${index}. Log in to Resource Optimiser:`);
+    steps.push('   logwork login');
     index += 1;
   }
   steps.push(`${index}. Paste one MCP config below into your IDE.`);
@@ -434,10 +475,10 @@ function formatNextSteps(authResult) {
 
 export function formatTerminalCommandInstructions(linkResult = null) {
   const commands = [
-    'Terminal commands installed:',
-    '  logwork',
-    '  logwork-helper auth login',
-    '  logwork-helper mcp'
+    'Terminal command installed:',
+    '  logwork            open the terminal UI',
+    '  logwork login      log in to Resource Optimiser',
+    '  logwork --help     list all commands'
   ];
 
   if (!linkResult || (linkResult.linked === true && linkResult.commandAvailable === true)) {
@@ -458,13 +499,6 @@ export function formatTerminalCommandInstructions(linkResult = null) {
     `Reason: ${linkResult.error}`,
     '',
     'Fallback:',
-    '  npm install -g logwork-helper'
+    '  npm install -g logwork-cli'
   ].join('\n');
-}
-
-if (isMainModule(import.meta.url)) {
-  main().catch((error) => {
-    console.error(error.message);
-    process.exit(1);
-  });
 }

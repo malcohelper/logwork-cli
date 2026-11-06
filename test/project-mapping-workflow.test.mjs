@@ -35,7 +35,7 @@ test.afterEach(() => {
   restoreEnv(envSnapshot);
 });
 
-test('upsertProjectMapping creates .logwork-helper.json and preview can use it', async () => {
+test('upsertProjectMapping creates .logwork.json and preview can use it', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'logwork-helper-test-'));
   const home = await useTempHelperHome();
 
@@ -57,10 +57,10 @@ test('upsertProjectMapping creates .logwork-helper.json and preview can use it',
     keywords: ['question bank']
   });
 
-  const file = JSON.parse(await fs.readFile(join(home, '.logwork-helper.json'), 'utf8'));
+  const file = JSON.parse(await fs.readFile(join(home, '.logwork.json'), 'utf8'));
   assert.equal(file.projectMappings[0].projectName, '2621A-SIT-HTML BUILDER-PRJ');
   await assert.rejects(
-    () => fs.readFile(join(cwd, '.logwork-helper.json'), 'utf8'),
+    () => fs.readFile(join(cwd, '.logwork.json'), 'utf8'),
     /ENOENT/
   );
 
@@ -121,7 +121,7 @@ test('upsertProjectMapping rejects invalid project without writing config', asyn
   );
 
   await assert.rejects(
-    () => fs.readFile(join(home, '.logwork-helper.json'), 'utf8'),
+    () => fs.readFile(join(home, '.logwork.json'), 'utf8'),
     /ENOENT/
   );
 });
@@ -156,8 +156,8 @@ test('listLogworkProjects returns memberships and current mappings', async () =>
 
   assert.deepEqual(result.projects, projects);
   assert.equal(result.mappings.length, 1);
-  assert.equal(result.configSources.user, join(home, '.logwork-helper.json'));
-  assert.equal(result.configSources.project, join(cwd, '.logwork-helper.json'));
+  assert.equal(result.configSources.user, join(home, '.logwork.json'));
+  assert.equal(result.configSources.project, join(cwd, '.logwork.json'));
   assert.match(result.summary, /Found 1 Resource Optimiser project memberships/);
 });
 
@@ -233,8 +233,8 @@ test('upsertProjectMapping can write project scoped mapping explicitly', async (
   });
 
   assert.equal(result.scope, 'project');
-  assert.equal(result.configPath, join(cwd, '.logwork-helper.json'));
-  assert.equal(JSON.parse(await fs.readFile(join(cwd, '.logwork-helper.json'), 'utf8')).projectMappings.length, 1);
+  assert.equal(result.configPath, join(cwd, '.logwork.json'));
+  assert.equal(JSON.parse(await fs.readFile(join(cwd, '.logwork.json'), 'utf8')).projectMappings.length, 1);
 });
 
 test('config paths default to helper home and support project scope', async () => {
@@ -242,9 +242,9 @@ test('config paths default to helper home and support project scope', async () =
   const home = await useTempHelperHome();
 
   assert.equal(helperHome(), home);
-  assert.equal(userConfigPath(), join(home, '.logwork-helper.json'));
-  assert.equal(configPath(cwd), join(home, '.logwork-helper.json'));
-  assert.equal(configPath(cwd, 'project'), join(cwd, '.logwork-helper.json'));
+  assert.equal(userConfigPath(), join(home, '.logwork.json'));
+  assert.equal(configPath(cwd), join(home, '.logwork.json'));
+  assert.equal(configPath(cwd, 'project'), join(cwd, '.logwork.json'));
 });
 
 test('normalizeConfig cleans mapping arrays and drops mappings without project identity', () => {
@@ -297,7 +297,7 @@ test('loadLocalConfig reads legacy home mapping and upsert migrates it into help
     fetchProjects: async () => projects
   });
 
-  assert.equal(result.configPath, join(helperHomePath, '.logwork-helper.json'));
+  assert.equal(result.configPath, join(helperHomePath, '.logwork.json'));
   assert.deepEqual(result.mapping.tickets, ['SCB', 'NEW']);
   assert.deepEqual(result.mapping.keywords, ['legacy', 'current']);
 });
@@ -328,7 +328,7 @@ test('loadLocalConfig merges duplicate mappings across legacy, user, and project
       }
     ]
   }), 'utf8');
-  await fs.writeFile(join(cwd, '.logwork-helper.json'), JSON.stringify({
+  await fs.writeFile(join(cwd, '.logwork.json'), JSON.stringify({
     projectMappings: [
       {
         projectName: 'Project Course Builder',

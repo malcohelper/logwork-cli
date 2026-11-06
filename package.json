@@ -1,16 +1,16 @@
 {
-  "name": "logwork-helper",
-  "version": "0.2.6",
-  "description": "Local-first MCP server and terminal CLI for safe Resource Optimiser logwork automation.",
+  "name": "logwork-cli",
+  "version": "1.0.0",
+  "description": "Log work to Resource Optimiser and Jira from the terminal, an MCP server for AI IDEs, and a terminal UI.",
   "license": "UNLICENSED",
   "type": "module",
-  "homepage": "https://github.com/tructran2598/logwork-helper#readme",
+  "homepage": "https://github.com/malcohelper/logwork-cli#readme",
   "bugs": {
-    "url": "https://github.com/tructran2598/logwork-helper/issues"
+    "url": "https://github.com/malcohelper/logwork-cli/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tructran2598/logwork-helper.git"
+    "url": "git+https://github.com/malcohelper/logwork-cli.git"
   },
   "keywords": [
     "logwork",
@@ -25,61 +25,38 @@
     "cursor",
     "vscode",
     "claude-code",
-    "git-hook"
+    "cli"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "os": [
     "darwin",
     "win32"
   ],
   "files": [
-    "auth-cli.mjs",
-    "cli.mjs",
-    "config.mjs",
-    "diagnostics-cli.mjs",
-    "delete-logwork-cli.mjs",
-    "edit-logwork-cli.mjs",
-    "history-cli.mjs",
-    "install-user.mjs",
-    "install.mjs",
-    "jira-cli.mjs",
-    "logwork-helper.mjs",
-    "manual-log.mjs",
-    "mcp-server.mjs",
-    "reconcile-cli.mjs",
-    "release-cli.mjs",
-    "reminder-cli.mjs",
-    "update-cli.mjs",
-    "setup-user.sh",
-    "setup.sh",
-    "hooks/",
+    "bin/",
+    "commands/",
     "lib/",
     "docs/",
     "examples/mcp/",
+    "setup.sh",
     "README.md",
     "LICENSE",
     "RELEASE.md"
   ],
   "bin": {
-    "logwork": "manual-log.mjs",
-    "logwork-helper-setup-user": "install-user.mjs",
-    "logwork-helper-install": "install.mjs",
-    "logwork-helper": "cli.mjs",
-    "logwork-helper-manual": "manual-log.mjs",
-    "logwork-helper-mcp": "mcp-server.mjs"
+    "logwork": "bin/logwork.mjs",
+    "logwork-cli": "bin/logwork.mjs"
   },
   "scripts": {
-    "setup-user": "node install-user.mjs",
-    "install-hook": "node install.mjs",
-    "log": "node manual-log.mjs",
-    "log:dry-run": "LOGWORK_DRY_RUN=1 node manual-log.mjs",
-    "start": "node logwork-helper.mjs",
-    "dry-run": "LOGWORK_DRY_RUN=1 node logwork-helper.mjs",
+    "start": "node bin/logwork.mjs",
+    "dry-run": "LOGWORK_DRY_RUN=1 node bin/logwork.mjs",
+    "mcp": "node bin/logwork.mjs mcp",
+    "setup": "node bin/logwork.mjs setup",
     "audit:prod": "npm audit --omit=dev --audit-level=moderate",
     "pack:check": "npm pack --dry-run",
-    "release:doctor": "node release-cli.mjs doctor --full",
+    "release:doctor": "node bin/logwork.mjs release doctor --full",
     "release:check": "npm test && npm run audit:prod && npm run pack:check && git diff --check",
     "test:windows-credential": "node --test --test-name-pattern=\"Windows Credential Manager stores, reads, and deletes a test credential\" test/credential-store.test.mjs",
     "test": "node --test"

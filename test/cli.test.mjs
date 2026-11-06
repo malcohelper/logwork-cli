@@ -5,8 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, symlinkSync } from
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { parseLoginArgs, runLoginCommand } from '../auth-cli.mjs';
-import { parseJiraLoginArgs, runJiraLoginCommand } from '../jira-cli.mjs';
+import { parseJiraLoginArgs, parseLoginArgs, runJiraLoginCommand, runLoginCommand } from '../commands/auth.mjs';
 import { createAuthDiagnosticsRecorder } from '../lib/auth-diagnostics.mjs';
 import {
   formatSetupUserInstructions,
@@ -16,215 +15,129 @@ import {
   linkGlobalBinaries,
   parseSetupUserArgs,
   sanitizeRuntimeMetadata
-} from '../install-user.mjs';
+} from '../commands/setup.mjs';
+import { parseQuickArgs } from '../commands/quick.mjs';
+import { getStartupUpdateNotice } from '../commands/tui.mjs';
+import { COMMANDS } from '../bin/logwork.mjs';
 import { isMainModule } from '../lib/entrypoint.mjs';
-import { getStartupUpdateNotice, parseManualArgs } from '../manual-log.mjs';
 
-test('package exposes logwork binary for manual REPL shortcut', () => {
+const ENTRY = 'bin/logwork.mjs';
+const NO_MIGRATION_ENV = { ...process.env, LOGWORK_HOME: mkdtempSync(join(tmpdir(), 'logwork-cli-home-')) };
+
+function runCli(args, options = {}) {
+  return spawnSync(process.execPath, [ENTRY, ...args], {
+    encoding: 'utf8',
+    env: NO_MIGRATION_ENV,
+    ...options
+  });
+}
+
+test('package exposes a single logwork entry (plus logwork-cli for npx)', () => {
   const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(packageJson.bin.logwork, 'manual-log.mjs');
-  assert.equal(packageJson.bin['logwork-helper-manual'], 'manual-log.mjs');
+  assert.equal(packageJson.name, 'logwork-cli');
+  assert.deepEqual(packageJson.bin, {
+    logwork: 'bin/logwork.mjs',
+    'logwork-cli': 'bin/logwork.mjs'
+  });
+  assert.match(packageJson.repository.url, /malcohelper\/logwork-cli/);
+});
+
+test('every command module exports the function the dispatcher calls', async () => {
+  for (const command of COMMANDS) {
+    const module = await command.load();
+    assert.equal(typeof module[command.fn], 'function', `${command.name} -> ${command.fn}`);
+  }
 });
 
 test('entrypoint detection supports direct paths, symlinks, and unrelated paths', {
   skip: process.platform === 'win32' ? 'Windows npm bins use command shims instead of POSIX symlinks.' : false
 }, () => {
-  const manualPath = new URL('../manual-log.mjs', import.meta.url).pathname;
-  const manualUrl = pathToFileURL(realpathSync(manualPath)).href;
+  const entryPath = new URL('../bin/logwork.mjs', import.meta.url).pathname;
+  const entryUrl = pathToFileURL(realpathSync(entryPath)).href;
   const tmpDir = mkdtempSync(join(tmpdir(), 'logwork-entrypoint-'));
   const symlinkPath = join(tmpDir, 'logwork');
-  symlinkSync(manualPath, symlinkPath);
+  symlinkSync(entryPath, symlinkPath);
 
-  assert.equal(isMainModule(manualUrl, ['node', manualPath]), true);
-  assert.equal(isMainModule(manualUrl, ['node', symlinkPath]), true);
-  assert.equal(isMainModule(manualUrl, ['node', new URL('../package.json', import.meta.url).pathname]), false);
+  assert.equal(isMainModule(entryUrl, ['node', entryPath]), true);
+  assert.equal(isMainModule(entryUrl, ['node', symlinkPath]), true);
+  assert.equal(isMainModule(entryUrl, ['node', new URL('../package.json', import.meta.url).pathname]), false);
 });
 
-test('manual binary starts through a symlink like an npm global bin', {
+test('logwork starts through a symlink like an npm global bin and opens the terminal UI', {
   skip: process.platform === 'win32' ? 'Windows npm bins use command shims instead of POSIX symlinks.' : false
 }, () => {
-  const manualPath = new URL('../manual-log.mjs', import.meta.url).pathname;
+  const entryPath = new URL('../bin/logwork.mjs', import.meta.url).pathname;
   const tmpDir = mkdtempSync(join(tmpdir(), 'logwork-bin-'));
   const symlinkPath = join(tmpDir, 'logwork');
-  symlinkSync(manualPath, symlinkPath);
+  symlinkSync(entryPath, symlinkPath);
 
-  const help = spawnSync(process.execPath, [symlinkPath, '--help'], {
-    encoding: 'utf8'
-  });
+  const help = spawnSync(process.execPath, [symlinkPath, '--help'], { encoding: 'utf8', env: NO_MIGRATION_ENV });
   assert.equal(help.status, 0);
-  assert.match(help.stdout, /Preferred shortcut:\n  logwork/);
+  assert.match(help.stdout, /logwork <command>/);
 
   const repl = spawnSync(process.execPath, [symlinkPath], {
     input: '/help\n',
-    encoding: 'utf8'
+    encoding: 'utf8',
+    env: NO_MIGRATION_ENV
   });
   assert.equal(repl.status, 0);
-  assert.match(repl.stdout, /Logwork Helper manual session/);
+  assert.match(repl.stdout, /Logwork terminal UI/);
   assert.match(repl.stdout, /\/logwork \[ro\|jira\|both\]\s+Create Resource Optimiser, Jira, or combined logwork/);
 });
 
-test('CLI dispatcher prints top-level help', () => {
-  const result = spawnSync(process.execPath, ['cli.mjs', '--help'], {
-    encoding: 'utf8'
-  });
-
+test('logwork --help lists every command and short examples', () => {
+  const result = runCli(['--help']);
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /logwork-helper setup-user/);
-  assert.match(result.stdout, /logwork-helper auth login/);
-  assert.match(result.stdout, /logwork-helper jira login/);
-  assert.match(result.stdout, /logwork-helper release doctor --full/);
-  assert.match(result.stdout, /logwork-helper update check/);
-  assert.match(result.stdout, /logwork-helper reminder status/);
-  assert.match(result.stdout, /logwork-helper reconcile this-week/);
-  assert.match(result.stdout, /logwork-helper history --target jira/);
-  assert.match(result.stdout, /logwork-helper doctor/);
-  assert.match(result.stdout, /logwork-helper mcp/);
-  assert.match(result.stdout, /\n  logwork\n/);
-  assert.match(result.stdout, /Primary setup:/);
-  assert.match(result.stdout, /Check my logwork for this week/);
+  for (const name of ['query', 'quick', 'edit', 'delete', 'reconcile', 'history', 'login', 'logout', 'status', 'setup', 'mcp', 'reminder', 'update', 'doctor', 'release']) {
+    assert.match(result.stdout, new RegExp(`\\n  ${name}\\s`), name);
+  }
+  assert.match(result.stdout, /logwork edit 304032 --task "Bug Fix" --desc/);
+  assert.doesNotMatch(result.stdout, /logwork-helper/);
 });
 
-test('CLI dispatcher prints command help without executing setup', () => {
-  const result = spawnSync(process.execPath, ['cli.mjs', 'setup-user', '--help'], {
-    encoding: 'utf8'
-  });
-
-  assert.equal(result.status, 0);
-  assert.match(result.stdout, /setup-user \[--login\|--no-login\]/);
-  assert.match(result.stdout, /prints MCP configs/);
-  assert.match(result.stdout, /Paste one printed MCP config into your IDE/);
-  assert.match(result.stdout, /--login/);
-  assert.equal(result.stderr, '');
+test('logwork rejects unknown commands and prints help', () => {
+  const result = runCli(['unknown-command']);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Unknown command: unknown-command/);
 });
 
-test('CLI dispatcher prints API-only auth help', () => {
-  const result = spawnSync(process.execPath, ['cli.mjs', 'auth', '--help'], {
-    encoding: 'utf8'
-  });
-
+test('logwork --version prints the package version', () => {
+  const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const result = runCli(['--version']);
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /logwork-helper auth login/);
-  assert.match(result.stdout, /Keycloak API flow/);
-  assert.doesNotMatch(result.stdout, /--browser/);
-  assert.doesNotMatch(result.stdout, /auth record/);
+  assert.equal(result.stdout.trim(), packageJson.version);
 });
 
-test('CLI dispatcher prints Jira auth help', () => {
-  const result = spawnSync(process.execPath, ['cli.mjs', 'jira', '--help'], {
-    encoding: 'utf8'
-  });
+const HELP_CASES = [
+  [['setup', '--help'], [/logwork setup \[--login\|--no-login\]/, /prints\nMCP configs|MCP configs/, /carried over automatically/]],
+  [['login', '--help'], [/logwork login \[ro\|jira\]/, /Personal Access Token/, /never in files or command arguments/]],
+  [['status', '--help'], [/logwork status \[ro\|jira\]/]],
+  [['doctor', '--help'], [/logwork doctor/, /sanitized support report/]],
+  [['release', '--help'], [/logwork release doctor \[--full\]/, /npm pack --dry-run/]],
+  [['history', '--help'], [/logwork history \[--target ro\|jira\|both\]/, /local apply result ledger/]],
+  [['update', '--help'], [/update check \[--force\]/, /update install \[--version <semver>\]/]],
+  [['reminder', '--help'], [/logwork reminder enable \[--time HH:mm\]/, /launchd on macOS and Task Scheduler on Windows/]],
+  [['reconcile', '--help'], [/reconcile \[today\|yesterday\|this-week/]],
+  [['query', '--help'], [/logwork query \[today\|yesterday/, /logwork edit/]],
+  [['quick', '--help'], [/logwork quick -m/, /description/]],
+  [['edit', '--help'], [/logwork edit <id>/, /--task <task>/, /--desc <text>/, /replaces the entry/]],
+  [['delete', '--help'], [/logwork delete/]]
+];
 
-  assert.equal(result.status, 0);
-  assert.match(result.stdout, /logwork-helper jira login/);
-  assert.match(result.stdout, /Personal Access Token/);
-  assert.match(result.stdout, /never accept Jira tokens/);
-});
-
-test('CLI dispatcher prints diagnostics help', () => {
-  const result = spawnSync(process.execPath, ['cli.mjs', 'diagnostics', '--help'], {
-    encoding: 'utf8'
-  });
-
-  assert.equal(result.status, 0);
-  assert.match(result.stdout, /logwork-helper diagnostics/);
-  assert.match(result.stdout, /sanitized support report/);
-});
-
-test('CLI dispatcher prints release help', () => {
-  const result = spawnSync(process.execPath, ['cli.mjs', 'release', '--help'], {
-    encoding: 'utf8'
-  });
-
-  assert.equal(result.status, 0);
-  assert.match(result.stdout, /logwork-helper release doctor \[--full\]/);
-  assert.match(result.stdout, /npm auth/);
-  assert.match(result.stdout, /npm pack --dry-run/);
-});
-
-test('CLI dispatcher prints apply history help', () => {
-  const result = spawnSync(process.execPath, ['cli.mjs', 'history', '--help'], {
-    encoding: 'utf8'
-  });
-
-  assert.equal(result.status, 0);
-  assert.match(result.stdout, /history \[--target ro\|jira\|both\]/);
-  assert.match(result.stdout, /without credentials or raw API responses/);
-});
-
-test('CLI dispatcher prints update help without checking the network', () => {
-  const result = spawnSync(process.execPath, ['cli.mjs', 'update', '--help'], {
-    encoding: 'utf8'
-  });
-
-  assert.equal(result.status, 0);
-  assert.match(result.stdout, /update check \[--force\]/);
-  assert.match(result.stdout, /update install \[--version <semver>\]/);
-  assert.match(result.stdout, /preserves local state and OS credentials/);
-  assert.equal(result.stderr, '');
-});
-
-test('CLI dispatcher prints reminder help without installing an OS schedule', () => {
-  const result = spawnSync(process.execPath, ['cli.mjs', 'reminder', '--help'], {
-    encoding: 'utf8'
-  });
-
-  assert.equal(result.status, 0);
-  assert.match(result.stdout, /reminder enable \[--time HH:mm\]/);
-  assert.match(result.stdout, /reminder status \[--json\]/);
-  assert.match(result.stdout, /launchd on macOS or Task Scheduler on Windows/);
-  assert.equal(result.stderr, '');
-});
-
-test('CLI dispatcher prints reconcile help without querying RO or Jira', () => {
-  const result = spawnSync(process.execPath, ['cli.mjs', 'reconcile', '--help'], {
-    encoding: 'utf8'
-  });
-
-  assert.equal(result.status, 0);
-  assert.match(result.stdout, /reconcile \[today\|yesterday\|this-week/);
-  assert.match(result.stdout, /Read-only comparison/);
-  assert.match(result.stdout, /target-specific preview and approval/);
-  assert.equal(result.stderr, '');
-});
-
-test('CLI dispatcher prints doctor help', () => {
-  const result = spawnSync(process.execPath, ['cli.mjs', 'doctor', '--help'], {
-    encoding: 'utf8'
-  });
-
-  assert.equal(result.status, 0);
-  assert.match(result.stdout, /logwork-helper doctor/);
-  assert.match(result.stdout, /same checks as diagnostics/);
-  assert.match(result.stdout, /passwords, OTPs, or tokens/);
-});
-
-test('CLI dispatcher runs diagnostics command and writes report', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'logwork-diagnostics-cli-'));
-  const result = spawnSync(process.execPath, ['cli.mjs', 'diagnostics'], {
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      LOGWORK_HELPER_HOME: dir
+for (const [args, patterns] of HELP_CASES) {
+  test(`logwork ${args.join(' ')} prints help without side effects`, () => {
+    const result = runCli(args);
+    assert.equal(result.status, 0, result.stderr);
+    for (const pattern of patterns) {
+      assert.match(result.stdout, pattern);
     }
+    assert.doesNotMatch(result.stdout, /logwork-helper (auth|jira|setup-user|manual)/);
   });
+}
 
-  assert.equal(result.status, 0);
-  assert.match(result.stdout, /Diagnostics report written to/);
-  const reportPath = result.stdout.match(/Diagnostics report written to (.+)/)?.[1]?.trim();
-  assert.ok(reportPath);
-  assert.equal(existsSync(reportPath), true);
-  assert.doesNotMatch(readFileSync(reportPath, 'utf8'), /eyJ/);
-});
-
-test('CLI dispatcher runs doctor command and writes sanitized report', () => {
+test('logwork doctor writes a sanitized report', () => {
   const dir = mkdtempSync(join(tmpdir(), 'logwork-doctor-cli-'));
-  const result = spawnSync(process.execPath, ['cli.mjs', 'doctor'], {
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      LOGWORK_HELPER_HOME: dir
-    }
-  });
+  const result = runCli(['doctor'], { env: { ...process.env, LOGWORK_HOME: dir } });
 
   assert.equal(result.status, 0);
   assert.match(result.stdout, /Diagnostics report written to/);
@@ -234,27 +147,12 @@ test('CLI dispatcher runs doctor command and writes sanitized report', () => {
   assert.doesNotMatch(readFileSync(reportPath, 'utf8'), /eyJ/);
 });
 
-test('CLI dispatcher prints manual REPL help', () => {
-  const result = spawnSync(process.execPath, ['cli.mjs', 'manual', '--help'], {
-    encoding: 'utf8'
-  });
-
-  assert.equal(result.status, 0);
-  assert.match(result.stdout, /Preferred shortcut:\n  logwork/);
-  assert.match(result.stdout, /logwork-helper manual/);
-  assert.match(result.stdout, /manual quick --message/);
-  assert.match(result.stdout, /\/query yesterday/);
-  assert.match(result.stdout, /\/query this-week/);
-  assert.match(result.stdout, /\/query last-week/);
-  assert.match(result.stdout, /\/query this-month/);
-  assert.match(result.stdout, /\/query last-month/);
-  assert.match(result.stdout, /\/logwork/);
-  assert.match(result.stdout, /\/logwork ro/);
-  assert.match(result.stdout, /\/logwork jira/);
-  assert.match(result.stdout, /\/logwork both/);
-  assert.match(result.stdout, /\/history/);
-  assert.doesNotMatch(result.stdout, /\/apply/);
-  assert.doesNotMatch(result.stdout, /\/exit/);
+test('quick parser accepts -m, --message= and positional text', () => {
+  assert.deepEqual(parseQuickArgs(['-m', 'Fix login']), { message: 'Fix login', help: false });
+  assert.deepEqual(parseQuickArgs(['--message=Fix login']), { message: 'Fix login', help: false });
+  assert.deepEqual(parseQuickArgs(['Fix', 'login']), { message: 'Fix login', help: false });
+  assert.deepEqual(parseQuickArgs(['--help']), { message: '', help: true });
+  assert.throws(() => parseQuickArgs(['-m']), /requires a value/);
 });
 
 test('auth login parser is API-only and rejects browser auth options', () => {
@@ -373,7 +271,7 @@ test('setup-user parser supports login flags', () => {
   assert.deepEqual(parseSetupUserArgs(['--login']), { loginMode: 'required' });
   assert.deepEqual(parseSetupUserArgs(['--no-login']), { loginMode: 'skip' });
   assert.deepEqual(parseSetupUserArgs([]), { loginMode: 'prompt' });
-  assert.throws(() => parseSetupUserArgs(['--unknown']), /Unknown setup-user option/);
+  assert.throws(() => parseSetupUserArgs(['--unknown']), /Unknown setup option/);
 });
 
 test('setup-user runtime installs dependencies before linking global binaries', async () => {
@@ -383,8 +281,8 @@ test('setup-user runtime installs dependencies before linking global binaries', 
 
   await installUserRuntime({
     options: { loginMode: 'skip' },
-    sourceDir: '/tmp/source-logwork-helper',
-    targetDir: '/tmp/target-logwork-helper',
+    sourceDir: '/tmp/source-logwork-cli',
+    targetDir: '/tmp/target-logwork-cli',
     mkdirFn: async () => calls.push('mkdir'),
     copyFn: async () => calls.push('copy'),
     cleanupFn: async () => {
@@ -403,6 +301,10 @@ test('setup-user runtime installs dependencies before linking global binaries', 
       calls.push('auth');
       return null;
     },
+    reminderFn: async () => {
+      calls.push('reminder');
+      return null;
+    },
     printFn: async (targetDir, authResult, linkResult, cleanupResult) => {
       calls.push('print');
       printedLinkResult = linkResult;
@@ -410,7 +312,7 @@ test('setup-user runtime installs dependencies before linking global binaries', 
     }
   });
 
-  assert.deepEqual(calls, ['mkdir', 'copy', 'cleanup', 'install', 'link', 'auth', 'print']);
+  assert.deepEqual(calls, ['mkdir', 'copy', 'cleanup', 'install', 'link', 'auth', 'reminder', 'print']);
   assert.deepEqual(printedLinkResult, {
     linked: true,
     commandAvailable: true
@@ -421,7 +323,7 @@ test('setup-user runtime installs dependencies before linking global binaries', 
   });
 });
 
-test('setup-user cleanup removes stale local self tarball dependencies', async () => {
+test('setup cleanup removes stale local self tarball dependencies', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'logwork-stale-metadata-'));
   const packagePath = join(dir, 'package.json');
   const lockPath = join(dir, 'package-lock.json');
@@ -498,7 +400,7 @@ test('global binary link failure is reported without throwing', async () => {
     commandFinder: async () => true
   });
 
-  assert.deepEqual(calls, [['npm', ['link']]]);
+  assert.deepEqual(calls, [['npm', ['rm', '-g', 'logwork-helper']], ['npm', ['link']]]);
   assert.equal(result.linked, false);
   assert.equal(result.commandAvailable, false);
   assert.match(result.error, /EACCES/);
@@ -513,7 +415,7 @@ test('global binary link warns when logwork is not visible on PATH', async () =>
     commandFinder: async () => false
   });
 
-  assert.deepEqual(calls, [['npm', ['link']]]);
+  assert.deepEqual(calls, [['npm', ['rm', '-g', 'logwork-helper']], ['npm', ['link']]]);
   assert.equal(result.linked, true);
   assert.equal(result.commandAvailable, false);
   assert.match(result.warning, /not visible on PATH/);
@@ -543,13 +445,13 @@ test('setup-user output explains terminal commands and fallback install', () => 
   assert.match(formatTerminalCommandInstructions({
     linked: true,
     commandAvailable: true
-  }), /Terminal commands installed:\n  logwork\n  logwork-helper auth login/);
+  }), /Terminal command installed:\n  logwork +open the terminal UI\n  logwork login/);
 
   assert.match(formatTerminalCommandInstructions({
     linked: false,
     commandAvailable: false,
     error: 'ELINKGLOBAL'
-  }), /Fallback:\n  npm install -g logwork-helper/);
+  }), /Fallback:\n  npm install -g logwork-cli/);
   assert.doesNotMatch(formatTerminalCommandInstructions({
     linked: false,
     commandAvailable: false,
@@ -559,7 +461,7 @@ test('setup-user output explains terminal commands and fallback install', () => 
 
 test('setup-user checklist omits auth retry after successful login', () => {
   const output = formatSetupUserInstructions({
-    targetDir: '/tmp/target-logwork-helper',
+    targetDir: '/tmp/target-logwork-cli',
     authResult: { ok: true },
     linkResult: {
       linked: true,
@@ -577,17 +479,18 @@ test('setup-user checklist omits auth retry after successful login', () => {
   assert.match(output, /Verify/);
   assert.match(output, /Safety/);
   assert.match(output, /- Auth: completed/);
-  assert.doesNotMatch(nextStepsSection(output), /logwork-helper auth login/);
-  assert.match(output, /Cursor \/ Antigravity mcp_config\.json:/);
+  assert.doesNotMatch(nextStepsSection(output), /logwork login/);
+  assert.match(output, /Cursor \/ Antigravity \/ Claude Code \(\.mcp\.json\):/);
   assert.match(output, /Codex config\.toml:/);
   assert.match(output, /GitHub Copilot \/ VS Code mcp\.json:/);
-  assert.match(output, /target-logwork-helper/);
-  assert.match(output, /mcp-server\.mjs/);
+  assert.match(output, /target-logwork-cli/);
+  assert.match(output, /"logwork": \{/);
+  assert.match(output, /bin\/logwork\.mjs",\n\s+"mcp"/);
 });
 
-test('setup-user checklist uses Windows credential store and hook command on Windows', () => {
+test('setup checklist uses the Windows credential store on Windows', () => {
   const output = formatSetupUserInstructions({
-    targetDir: 'C:\\Users\\example\\.logwork-helper',
+    targetDir: 'C:\\Users\\example\\.logwork-cli',
     platform: 'win32',
     authResult: null,
     linkResult: {
@@ -601,13 +504,12 @@ test('setup-user checklist uses Windows credential store and hook command on Win
   });
 
   assert.match(output, /Windows Credential Manager/);
-  assert.match(output, /logwork-helper install-hook C:\\path\\to\\project-repo/);
-  assert.doesNotMatch(output, /setup\.sh/);
+  assert.doesNotMatch(output, /install-hook|setup\.sh/);
 });
 
 test('setup-user checklist gives auth retry only when auth is skipped or fails', () => {
   const skipped = formatSetupUserInstructions({
-    targetDir: '/tmp/target-logwork-helper',
+    targetDir: '/tmp/target-logwork-cli',
     authResult: null,
     linkResult: {
       linked: true,
@@ -620,10 +522,10 @@ test('setup-user checklist gives auth retry only when auth is skipped or fails',
   });
 
   assert.match(skipped, /- Auth: not run/);
-  assert.match(nextStepsSection(skipped), /logwork-helper auth login/);
+  assert.match(nextStepsSection(skipped), /logwork login/);
 
   const failed = formatSetupUserInstructions({
-    targetDir: '/tmp/target-logwork-helper',
+    targetDir: '/tmp/target-logwork-cli',
     authResult: {
       ok: false,
       error: `Invalid password=secret accessToken=${makeJwt()}`
@@ -642,12 +544,12 @@ test('setup-user checklist gives auth retry only when auth is skipped or fails',
   assert.match(failed, /password=<redacted>/);
   assert.doesNotMatch(failed, /password=secret/);
   assert.doesNotMatch(failed, /eyJ/);
-  assert.match(nextStepsSection(failed), /logwork-helper auth login/);
+  assert.match(nextStepsSection(failed), /logwork login/);
 });
 
 test('setup-user checklist preserves link warnings and fallback install guidance', () => {
   const missingPath = formatSetupUserInstructions({
-    targetDir: '/tmp/target-logwork-helper',
+    targetDir: '/tmp/target-logwork-cli',
     linkResult: {
       linked: true,
       commandAvailable: false,
@@ -658,7 +560,7 @@ test('setup-user checklist preserves link warnings and fallback install guidance
   assert.match(missingPath, /Warning: `logwork` was linked, but it is not visible on PATH/);
 
   const failedLink = formatSetupUserInstructions({
-    targetDir: '/tmp/target-logwork-helper',
+    targetDir: '/tmp/target-logwork-cli',
     linkResult: {
       linked: false,
       commandAvailable: false,
@@ -667,34 +569,11 @@ test('setup-user checklist preserves link warnings and fallback install guidance
   });
 
   assert.match(failedLink, /Terminal command link did not complete/);
-  assert.match(failedLink, /Fallback:\n  npm install -g logwork-helper/);
+  assert.match(failedLink, /Fallback:\n  npm install -g logwork-cli/);
   assert.doesNotMatch(failedLink, /npm link --global/);
 });
 
-test('manual parser defaults to REPL and keeps quick compatibility', () => {
-  assert.deepEqual(parseManualArgs([]), {
-    mode: 'repl',
-    message: '',
-    help: false
-  });
-  assert.deepEqual(parseManualArgs(['quick', '--message', 'Fix login bug']), {
-    mode: 'quick',
-    message: 'Fix login bug',
-    help: false
-  });
-  assert.deepEqual(parseManualArgs(['--message', 'Fix login bug']), {
-    mode: 'quick',
-    message: 'Fix login bug',
-    help: false
-  });
-  assert.deepEqual(parseManualArgs(['Fix login bug']), {
-    mode: 'quick',
-    message: 'Fix login bug',
-    help: false
-  });
-});
-
-test('manual startup update notice is actionable and never blocks on check failure', async () => {
+test('terminal UI startup update notice is actionable and never blocks on check failure', async () => {
   const notice = await getStartupUpdateNotice({
     checkForUpdatesFn: async () => ({
       updateAvailable: true,
@@ -703,38 +582,23 @@ test('manual startup update notice is actionable and never blocks on check failu
     })
   });
   assert.match(notice, /0\.1\.10 -> 0\.1\.11/);
-  assert.match(notice, /logwork-helper update install/);
+  assert.match(notice, /logwork update install/);
 
   assert.equal(await getStartupUpdateNotice({
     checkForUpdatesFn: async () => { throw new Error('offline'); }
   }), '');
 });
 
-test('CLI dispatcher rejects browser auth options before login', () => {
-  const result = spawnSync(process.execPath, ['cli.mjs', 'auth', 'login', '--browser', 'internet-explorer'], {
-    encoding: 'utf8'
-  });
-
+test('logwork login rejects browser auth options before prompting', () => {
+  const result = runCli(['login', '--browser', 'internet-explorer']);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Browser auth has been removed/);
 });
 
-test('CLI dispatcher rejects removed auth record command', () => {
-  const result = spawnSync(process.execPath, ['cli.mjs', 'auth', 'record'], {
-    encoding: 'utf8'
-  });
-
+test('logwork logout rejects unknown options', () => {
+  const result = runCli(['logout', 'record']);
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /Unknown auth command: record/);
-});
-
-test('CLI dispatcher rejects unknown commands', () => {
-  const result = spawnSync(process.execPath, ['cli.mjs', 'unknown-command'], {
-    encoding: 'utf8'
-  });
-
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /Unknown command: unknown-command/);
+  assert.match(result.stderr, /Unknown logout option: record/);
 });
 
 function makeJwt() {

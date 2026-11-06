@@ -2,28 +2,34 @@
 
 ## Project Structure & Module Organization
 
-This is a private Node.js 20+ ESM project for a macOS/Windows Git `commit-msg` hook, interactive CLI, and local MCP server that log work to Resource Optimiser.
+This is the `logwork-cli` npm package (repo `malcohelper/logwork-cli`): a Node.js 22+ ESM project for macOS/Windows with three surfaces over shared workflows. It provides a terminal UI, a CLI, and a local MCP server that log work to Resource Optimiser and Jira.
 
-- `logwork-helper.mjs`, `manual-log.mjs`, `mcp-server.mjs`, and `install.mjs` are executable entry points.
-- `lib/` contains reusable modules for API access, auth, project resolution, parsing, workflows, UI, and OS integration.
+- `bin/logwork.mjs` is the only executable entry point (npm bins `logwork` and `logwork-cli`). It dispatches `logwork <command>` in-process to `commands/*.mjs`. With no command it opens the terminal UI; `logwork mcp` starts the MCP server.
+- `commands/` contains one module per CLI command (`query`, `quick`, `edit`, `delete`, `reconcile`, `history`, `auth` for login/logout/status, `setup`, `reminder`, `update`, `doctor`, `release`, `tui`).
+- `lib/` contains reusable modules for API access, auth, project resolution, parsing, workflows, UI, OS integration, `config.mjs` (API paths, timeouts, defaults), `mcp-server.mjs`, and `legacy-migration.mjs` (one-time copy of state from the pre-rename `~/.logwork-helper`).
 - `test/` contains Node test runner suites named `*.test.mjs`.
-- `hooks/` contains the Git hook template installed into target repositories.
 - `examples/mcp/` contains MCP client configuration templates.
-- `config.mjs` centralizes API paths, timeouts, defaults, and allowed Safari hosts.
+
+## Logwork Entry Format And MCP Conventions
+
+- RO entries are `+<hours> <worklog task> | <description>`: the task before `|` must be an RO catalog task (`list_tasks`), the text after `|` is sent as `description`. See `CLAUDE.md` for the resolution rules (`defaultWorklogTask`, `worklog_task_required`).
+- Editing an existing RO entry is a replace (create corrected entry, then delete the original, with rollback); RO has no staff edit endpoint. Do not reintroduce the legacy `PATCH /member-logtime` for edits.
+- MCP writes are two calls to one tool: without `confirm` it previews and caches by `batchId`/`previewId`; with the id and `confirm: true` it applies. Apply calls must reject content fields (`assertApplyOnly`). Do not split tools back into `preview_*`/`apply_*` pairs.
+- Every MCP tool needs a `title`, `description`, `annotations`, and `.describe()` on each input; keep `SERVER_INSTRUCTIONS` and `test/mcp-smoke.test.mjs` in sync when adding or changing tools.
 
 ## Build, Test, and Development Commands
 
 - `npm ci`: install dependencies from `package-lock.json`.
 - `npm test`: run all tests with `node --test`.
-- `npm run start`: run the commit-message helper directly.
-- `npm run dry-run`: run the helper without writing logtime.
-- `npm run log`: start the manual log workflow.
-- `npm run log:dry-run`: preview manual logging without API writes.
-- `npm run install-hook -- /path/to/repo`: install the `commit-msg` hook into another repository.
+- `npm start`: open the terminal UI (`node bin/logwork.mjs`).
+- `npm run dry-run`: open the terminal UI with `LOGWORK_DRY_RUN=1` (no RO writes).
+- `npm run mcp`: run the MCP stdio server.
+- `npm run setup`: install the local runtime to `~/.logwork-cli` and print MCP configs.
+- `npm run release:doctor` / `npm run release:check`: release preflight and gates.
 
 ## Coding Style & Naming Conventions
 
-Use ESM syntax and `.mjs` files. Keep indentation at two spaces, prefer single quotes, and include semicolons. Functions and variables use `camelCase`; constants use `UPPER_SNAKE_CASE` when they represent regexes, maps, or fixed configuration. Keep shared behavior in `lib/` and entry-point orchestration in the root executables. No formatter or linter is currently configured, so match nearby style.
+Use ESM syntax and `.mjs` files. Keep indentation at two spaces, prefer single quotes, and include semicolons. Functions and variables use `camelCase`; constants use `UPPER_SNAKE_CASE` when they represent regexes, maps, or fixed configuration. Keep shared behavior in `lib/` and command orchestration in `commands/`; register new commands in the `COMMANDS` table of `bin/logwork.mjs`. No formatter or linter is currently configured, so match nearby style.
 
 ## Testing Guidelines
 
@@ -31,26 +37,25 @@ Tests use the built-in `node:test` framework with `node:assert/strict`. Place ne
 
 ## Commit & Pull Request Guidelines
 
-The current Git history is minimal (`Initial commit`, `add source`), so use concise imperative commit messages such as `add batch parser validation` or `fix MCP query range handling`. Pull requests should include a short summary, test results, and any manual validation performed. Link related issues when available. Include screenshots or terminal excerpts only for UI prompts, hook behavior, or MCP client setup changes.
+The current Git history is minimal (`Initial commit`, `add source`), so use concise imperative commit messages such as `add batch parser validation` or `fix MCP query range handling`. Pull requests should include a short summary, test results, and any manual validation performed. Link related issues when available. Include screenshots or terminal excerpts only for UI prompts or MCP client setup changes.
 
 ## Release Workflow
 
-Use `RELEASE.md` as the deeper checklist, but follow this operational order when publishing a new version:
+Releases are automated by `.github/workflows/release.yml`. Do not publish npm, tag, or create GitHub Releases by hand unless the workflow is broken.
 
 1. Confirm `main` is clean and synced with `git status --short --branch`.
-2. Run release gates with `npm run release:check`. At minimum, run `git diff --check`, `npm test`, and `npm pack --dry-run --cache /private/tmp/logwork-helper-npm-cache`.
-3. Commit all release-prep, documentation, and package metadata changes before the version bump.
-4. Bump the version with `npm version <version> --no-git-tag-version`.
-5. Re-run pack and diff checks, then commit with `bump version to <version>`.
-6. Push `main` to `origin/main`, not `malcohelper`, unless the user explicitly requests another remote.
-7. Publish npm with `npm whoami`, then `npm publish --access public`. If npm returns `EOTP`, ask the user for the current OTP and retry with `npm publish --access public --otp=<code>`.
-8. Verify npm with `npm view logwork-helper version`.
-9. Create an annotated tag with `git tag -a v<version> -m "v<version>"`, push it with `git push origin v<version>`, then create the GitHub Release with `gh release create v<version> --repo tructran2598/logwork-helper --title v<version> --generate-notes --verify-tag`.
-10. Edit the GitHub Release notes so the top has a concrete `## Summary` section with the main user-facing changes, grouped by module or theme. Do not leave the release body as only a changelog link, and do not include a full compare link unless the user explicitly asks for it.
-11. Verify the release, the remote tag, and final clean status.
+2. Add a `## [<version>] - <YYYY-MM-DD>` section to `CHANGELOG.md` with a concrete `### Summary` of user-facing changes, grouped by theme. This section becomes the GitHub Release description; `test/release-notes.test.mjs` fails if the current version has none.
+3. Bump with `npm version <version> --no-git-tag-version` (updates `package.json` and `package-lock.json`).
+4. Run `npm run release:check`.
+5. Commit (`release v<version>`) and push `main` to `https://github.com/malcohelper/logwork-cli.git`.
+6. CI (`ci.yml`, macOS + Windows) runs. When it passes on `main`, the Release workflow sees a version without a `v<version>` tag and:
+   - publishes `logwork-cli@<version>` to npm with provenance (`NPM_TOKEN` repository secret),
+   - creates tag `v<version>` and the GitHub Release with the CHANGELOG section as notes.
+   Re-running the workflow is safe: published versions and existing releases are skipped.
+7. Verify with `gh run list --workflow Release`, `npm view logwork-cli version`, and `gh release view v<version>`.
 
-Never publish with a dirty worktree. Never run `npm version` again after the version bump commit already exists. Do not include generated `.tgz` artifacts. If GitHub rejects a push because of workflow scope, use a GitHub credential with `workflow` scope rather than changing history. If global Git config has invalid signing fields, use `GIT_CONFIG_GLOBAL=/dev/null` for Git commands.
+Never reuse a published version. Never put npm tokens in files, commits, or command arguments; the token lives only in the `NPM_TOKEN` GitHub secret. Do not include generated `.tgz` artifacts. If GitHub rejects a push because of workflow scope, use a GitHub credential with `workflow` scope rather than changing history.
 
 ## Security & Configuration Tips
 
-Do not commit Resource Optimiser tokens, `.env` files, or machine-specific MCP paths. Auth stores only the final Resource Optimiser session in the OS credential store; keep MCP `cwd` pointed at this repository so optional `.logwork-helper.json` project mappings resolve predictably.
+Do not commit Resource Optimiser tokens, `.env` files, or machine-specific MCP paths. Auth stores only the final Resource Optimiser session in the OS credential store; project-scope mappings live in `.logwork.json` in the working repo (a legacy `.logwork-helper.json` is still read when no `.logwork.json` exists).

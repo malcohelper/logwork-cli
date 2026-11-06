@@ -1,12 +1,9 @@
-#!/usr/bin/env node
-
 import { confirm, isCancel } from '@clack/prompts';
-import { isMainModule } from './lib/entrypoint.mjs';
-import { parseRoDeleteArgs } from './lib/ro-delete-args.mjs';
+import { parseRoDeleteArgs } from '../lib/ro-delete-args.mjs';
 import {
   applyRoLogworkDelete,
   previewRoLogworkDelete
-} from './lib/ro-delete-workflow.mjs';
+} from '../lib/ro-delete-workflow.mjs';
 
 export async function runRoDeleteCommand(args = [], {
   preview = previewRoLogworkDelete,
@@ -52,7 +49,7 @@ export async function runRoDeleteCommand(args = [], {
 
 export function formatRoDeleteHelp() {
   return `Usage:
-  logwork-helper delete <logwork-id> [--yes] [--json]
+  logwork delete <logwork-id> [--yes] [--json]
 
 Soft-deletes one Resource Optimiser logwork entry (submitted or approved only).
 The command previews the entry, checks for concurrent changes, then calls DELETE /logwork/entries/:id.
@@ -69,11 +66,4 @@ async function defaultConfirm(message) {
     initialValue: false
   });
   return !isCancel(result) && result === true;
-}
-
-if (isMainModule(import.meta.url)) {
-  runRoDeleteCommand(process.argv.slice(2)).catch((error) => {
-    console.error(`RO delete error: ${error.message}`);
-    process.exitCode = 1;
-  });
 }

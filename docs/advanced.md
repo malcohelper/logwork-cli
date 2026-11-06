@@ -1,6 +1,6 @@
 # Advanced Usage
 
-This file keeps technical details out of the main README. Most users only need `npm install -g logwork-helper`, `logwork-helper setup-user --no-login`, `logwork-helper auth login`, and `/mcp`.
+This file keeps technical details out of the main README. Most users only need `npm install -g logwork-cli`, `logwork setup`, `logwork login`, and `/mcp`.
 
 For one consolidated reference covering all newly integrated CLI and MCP workflows, see the [integrated operations guide](operations-guide.md).
 
@@ -9,7 +9,7 @@ For one consolidated reference covering all newly integrated CLI and MCP workflo
 Defaults target the current Resource Optimiser / Vinova profile. For non-default deployments, configure the runtime with environment variables instead of editing source:
 
 ```bash
-LOGWORK_HELPER_PROFILE=vinova
+LOGWORK_PROFILE=vinova
 LOGWORK_API_BASE=https://api.resourceoptimiser.com/api/v1
 LOGWORK_LOGIN_URL=https://app.resourceoptimiser.com/vinova
 LOGWORK_JIRA_BASE_URL=https://jira-vnv.vinova.sg
@@ -20,12 +20,14 @@ LOGWORK_KEYCLOAK_TOKEN_URL=https://keycloak.vinova.sg/auth/realms/resource/proto
 LOGWORK_KEYCLOAK_REDIRECT_URI=https://app.resourceoptimiser.com/vinova/check-login
 ```
 
-In Windows PowerShell, set the same values with `$env:NAME = "value"` before running Logwork Helper.
+In Windows PowerShell, set the same values with `$env:NAME = "value"` before running `logwork`.
 
 Supported overrides:
 
 ```text
-LOGWORK_HELPER_PROFILE
+LOGWORK_PROFILE            (LOGWORK_HELPER_PROFILE still accepted)
+LOGWORK_HOME               (local state directory; LOGWORK_HELPER_HOME still accepted)
+LOGWORK_DRY_RUN=1          (RO writes return the request body instead of calling the API)
 LOGWORK_API_BASE
 LOGWORK_LOGIN_URL
 LOGWORK_JIRA_BASE_URL
@@ -53,68 +55,59 @@ URL and numeric overrides are validated on startup. Invalid values fail fast so 
 The recommended install path is:
 
 ```bash
-npm install -g logwork-helper
-logwork-helper setup-user --no-login
+npm install -g logwork-cli
+logwork setup --no-login
 ```
 
 One-off setup without a prior global install:
 
 ```bash
-npx -y logwork-helper setup-user --no-login
+npx -y logwork-cli setup --no-login
 ```
 
 Yarn global install:
 
 ```bash
-yarn global add logwork-helper
-logwork-helper setup-user --no-login
+yarn global add logwork-cli
+logwork setup --no-login
 ```
 
 To install and start auth immediately:
 
 ```bash
-logwork-helper setup-user --login
+logwork setup --login
 ```
 
 Use `--no-login` when installing in scripts or CI.
 
+`logwork setup` copies the package into `~/.logwork-cli`, runs `npm ci --omit=dev` there, removes a globally installed `logwork-helper` package (its `logwork` bin would block linking), runs `npm link`, re-registers an enabled reminder, and prints MCP configs.
+
 ## Update
 
-Check the currently running version against npm latest:
-
 ```bash
-logwork-helper update check
+logwork update check             # uses a 24-hour cache
+logwork update check --force     # query npm now
+logwork update install           # interactive confirmation
+logwork update install --version 0.3.1 --yes
 ```
 
-Force a registry check instead of using the 24-hour cache:
+The installer accepts only the version currently published under npm's `latest` tag. It runs `npm exec --package=logwork-cli@<version> -- logwork setup --no-login` with a fixed argument list. Then it verifies the copied `package.json` version in `~/.logwork-cli`.
+
+Project mappings, drafts, apply history, update cache, and OS credential-store records are preserved.
+
+The `logwork` terminal UI performs a cached check at startup and shows a one-line notice when an update exists. Registry failures are ignored in this startup path, so offline use still works.
+
+MCP exposes the same update through the `update` tool:
+- `action: "check"` is read-only.
+- `action: "install"` requires `confirm: true`. It does not accept a registry or an arbitrary command, and it re-checks npm immediately before installing.
+
+Reconnect or reload the IDE MCP server after updating.
+
+Manual recovery path:
 
 ```bash
-logwork-helper update check --force
-```
-
-Install npm latest after an interactive confirmation:
-
-```bash
-logwork-helper update install
-```
-
-For scripts, pass `--yes`. To double-check an announced release before installation, pass its exact SemVer:
-
-```bash
-logwork-helper update install --version 0.1.11 --yes
-```
-
-The installer accepts only the version currently published under npm's `latest` tag. It invokes npm with a fixed package and argument list, copies the new runtime to `~/.logwork-helper`, and verifies the copied `package.json` version. Project mappings, drafts, apply history, update cache, and OS credential-store records are preserved.
-
-The `logwork` terminal UI performs a cached check at startup and shows a one-line notice when an update exists. Registry failures are ignored in this startup path so offline use remains available.
-
-MCP exposes `check_for_updates` and `apply_update`. `apply_update` requires `confirm: true`, does not accept a registry or arbitrary command, and performs a fresh npm check immediately before installation. Restart the terminal session and reconnect or reload the IDE MCP server after updating.
-
-The previous manual update remains available as a recovery path:
-
-```bash
-npm update -g logwork-helper
-logwork-helper setup-user --no-login
+npm install -g logwork-cli@latest
+logwork setup --no-login
 ```
 
 ## Native Logwork Reminder
@@ -122,7 +115,7 @@ logwork-helper setup-user --no-login
 Enable the default weekday reminder:
 
 ```bash
-logwork-helper reminder enable
+logwork reminder enable
 ```
 
 Defaults:
@@ -136,19 +129,23 @@ Defaults:
 Customize the time or target:
 
 ```bash
-logwork-helper reminder enable --time 18:00 --target ro
-logwork-helper reminder enable --time 17:45 --target jira
+logwork reminder enable --time 18:00 --target ro
+logwork reminder enable --time 17:45 --target jira
 ```
 
 Inspect, test, or remove the reminder:
 
 ```bash
-logwork-helper reminder status
-logwork-helper reminder test
-logwork-helper reminder disable
+logwork reminder status
+logwork reminder test
+logwork reminder disable
 ```
 
-On macOS the helper writes `~/Library/LaunchAgents/sg.vinova.logwork-helper.reminder.plist` and loads it with `launchctl`. On Windows it creates the interactive user task `Logwork Helper Reminder` with `schtasks.exe`. Both schedulers run the stable `~/.logwork-helper/reminder-cli.mjs run` entrypoint, which reads credentials from macOS Keychain or Windows Credential Manager at execution time.
+How the reminder is scheduled:
+- **macOS:** it writes `~/Library/LaunchAgents/sg.vinova.logwork-cli.reminder.plist` and loads it with `launchctl`.
+- **Windows:** it creates the interactive user task `Logwork Reminder` with `schtasks.exe`.
+
+Both schedulers run `node ~/.logwork-cli/bin/logwork.mjs reminder run --home ~/.logwork-cli`. That command reads credentials from macOS Keychain or Windows Credential Manager when it runs. Enabling or disabling the reminder also removes the old `logwork-helper` schedule (`sg.vinova.logwork-helper.reminder` / `Logwork Helper Reminder`) if one is still present.
 
 Resource Optimiser is incomplete when today's logged hours are lower than booked hours. A day with no RO bookings and no RO logs is treated as not expected. Jira is incomplete when JQL finds no issue with a worklog by `currentUser()` on today's date. Auth or check failures produce an actionable notification without including the underlying API response.
 
@@ -159,9 +156,9 @@ The `test` command sends a sample notification immediately and does not query or
 Use the same preset periods as `/query`:
 
 ```bash
-logwork-helper reconcile today
-logwork-helper reconcile this-week
-logwork-helper reconcile last-week --json
+logwork reconcile today
+logwork reconcile this-week
+logwork reconcile last-week --json
 ```
 
 The command queries RO task details and Jira worklogs authored by the authenticated Jira user. Jira issues are discovered with an exclusive date-range JQL query, then each issue's worklogs are filtered again by author and started date. The result includes booked, RO, and Jira hours by day; total and issue-level differences; missing task-detail diagnostics; and high-confidence correction suggestions.
@@ -179,9 +176,9 @@ Inside the terminal UI, `/reconcile` opens a period picker. Direct commands are 
 /reconcile last-month
 ```
 
-MCP exposes the same workflow as `reconcile_logwork`. To correct a mismatch, create a normal `preview_logwork_batch` or `preview_jira_worklog_batch`, inspect it, and apply the target separately after approval.
+MCP exposes the same workflow as `reconcile`. To correct a mismatch, preview it with `log_work`, `edit_entry` or `log_jira_work`, inspect the preview, and apply each target separately after approval.
 
-## Manual Terminal REPL
+## Terminal UI
 
 If you want to log work directly from Terminal without an MCP client, use the React + Ink manual session:
 
@@ -189,17 +186,10 @@ If you want to log work directly from Terminal without an MCP client, use the Re
 logwork
 ```
 
-Compatibility commands still work:
-
-```bash
-logwork-helper manual
-logwork-helper log
-```
-
 Prompt preview:
 
 ```text
-Logwork Helper
+Logwork
 cwd: /path/to/repo
 
 logwork > /
@@ -227,7 +217,7 @@ Useful commands inside the session:
 /logwork ro
 /logwork jira
 /logwork both
-/edit-logwork 290364 --hours 0.5
+/edit-logwork 304032 --task Bug Fix --desc Fix date picker (SAP-42)
 /mcp
 /projects
 /projects 5234
@@ -236,18 +226,18 @@ Useful commands inside the session:
 /diagnostics
 ```
 
-`/logwork` opens a target picker for Resource Optimiser, Jira, or Both. `/logwork ro` starts the Resource Optimiser wizard: pick a day in the current week, pick a Resource Optimiser project, then enter one task per line:
+`/logwork` opens a target picker for Resource Optimiser, Jira, or Both. `/logwork ro` starts the Resource Optimiser wizard: pick a day in the current week, pick a Resource Optimiser project, then enter one task per line as `+<hours> <worklog task> | <description>`. The worklog task must be a Resource Optimiser catalog task for that project; the description is stored on the RO entry:
 
 ```text
-+2 check ui/ux
-+1.5 polish reset password state
++2 Feature Development | check ui/ux
++1.5 Feature Development | polish reset password state
 ```
 
 `/logwork jira` starts the Jira worklog wizard: pick a day, then enter tasks with exactly one Jira issue key:
 
 ```text
-+2 check ui/ux (SCB-213)
-+1.5 polish reset password state (SCB-214)
++2 Feature Development | check ui/ux (SCB-213)
++1.5 Feature Development | polish reset password state (SCB-214)
 ```
 
 `/logwork both` uses one date/task draft, builds separate Resource Optimiser and Jira previews, then asks for separate approvals when applying.
@@ -267,64 +257,45 @@ While the `task >` prompt is active, type `/` to see task-only actions:
 /cancel      Discard this logwork session
 ```
 
-Resource Optimiser drafts saved with `/save` are stored locally at `~/.logwork-helper/manual-drafts.json` on macOS or `%USERPROFILE%\.logwork-helper\manual-drafts.json` on Windows. Drafts never contain tokens, passwords, or OTPs.
+Resource Optimiser drafts saved with `/save` are stored locally at `~/.logwork-cli/manual-drafts.json` on macOS or `%USERPROFILE%\.logwork-cli\manual-drafts.json` on Windows. Drafts never contain tokens, passwords, or OTPs.
 
-Successful, partial, failed, and blocked apply outcomes are recorded in `~/.logwork-helper/apply-ledger.json`. The ledger contains only sanitized batch, entry, project, issue, status, and timestamp metadata. Read it with:
+Successful, partial, failed, and blocked apply outcomes are recorded in `~/.logwork-cli/apply-ledger.json`. The ledger contains only sanitized batch, entry, project, issue, status, and timestamp metadata. Read it with:
 
 ```bash
-logwork-helper history
-logwork-helper history --target jira --limit 10
-logwork-helper history --target both
+logwork history
+logwork history --target jira --limit 10
+logwork history --target both
 ```
 
 Inside `logwork`, use `/history`, `/history ro`, `/history jira`, or `/history both`. The `both` filter means records created while using the combined Both flow.
 
 ## Troubleshooting
 
-- **IDE does not show tools**: restart or reload the MCP client and check the server path points to `~/.logwork-helper/mcp-server.mjs` on macOS or `%USERPROFILE%\.logwork-helper\mcp-server.mjs` on Windows.
-- **`logwork: command not found` after `setup-user`**: open a new terminal first. If it still fails, run `npm install -g logwork-helper` or ensure your npm global bin directory is on `PATH`.
-- **`npm error ELINKGLOBAL` during `setup-user`**: update to `logwork-helper@0.1.6` or newer, then rerun setup. The installer uses `npm link`, not `npm link --global`.
-- **`query_logwork` or `allowUnbooked` missing**: reload the MCP tool cache or restart the IDE.
-- **Not authenticated to Resource Optimiser**: run `logwork-helper auth login`, or ask the assistant to call `start_auth_login`; enter secrets only in Terminal.
-- **Not authenticated to Jira**: run `logwork-helper jira login`, or ask the assistant to call `start_jira_auth`; paste the Jira PAT only in Terminal.
-- **Auth error after 2FA**: retry `logwork-helper auth login`. If it still fails, run `logwork-helper diagnostics` and send only the generated sanitized report.
-- **Jira worklog preview is blocked**: every Jira entry must include exactly one issue key, such as `SCB-213`. Duplicate Jira worklogs are blocking and cannot be overridden in v1.
-- **Support needs logs**: run `logwork-helper doctor` or `logwork-helper diagnostics`; the report is saved under the helper diagnostics directory.
-- **No project matched**: ask the assistant to call `list_logwork_projects`, choose the correct project, then call `upsert_project_mapping`.
-- **Do not paste Bearer tokens, cookies, passwords, OTPs, or raw curl auth logs**: auth is handled locally and MCP config should only contain `command` and `args`.
+- **IDE does not show tools:** restart or reload the MCP client. Check that the config runs `node ~/.logwork-cli/bin/logwork.mjs mcp` (on Windows, `%USERPROFILE%\.logwork-cli\bin\logwork.mjs`) and that the server name is `logwork`.
+- **Tools show old names such as `preview_logwork_batch`:** the IDE is still connected to the old `logwork-helper` entry. Replace that entry with the config printed by `logwork setup`; the [tool name table](mcp-setup.md#tool-name-changes-from-logwork-helper) lists the renames.
+- **`logwork: command not found` after `logwork setup`:** open a new terminal first. If it still fails, run `npm install -g logwork-cli`, or make sure your npm global bin directory is on `PATH`.
+- **`npm link` fails with `EEXIST` on `logwork`:** an old global `logwork-helper` package still owns the bin. Run `npm rm -g logwork-helper`, then `logwork setup` again.
+- **Not authenticated to Resource Optimiser:** run `logwork login`, or ask the assistant to call `login`. Enter secrets only in the terminal.
+- **Not authenticated to Jira:** run `logwork login jira`, or ask the assistant to call `login` with `target: "jira"`. Paste the Jira PAT only in the terminal.
+- **Auth error after 2FA:** retry `logwork login`. If it still fails, run `logwork doctor` and send only the generated sanitized report.
+- **Jira worklog preview is blocked:** every Jira entry must include exactly one issue key, such as `SCB-213`. Duplicate Jira worklogs block the apply and cannot be overridden.
+- **Apply says no cached preview:** previews expire after 1 hour and are lost when the MCP server restarts. Preview again.
+- **No project matched:** ask the assistant to call `list_projects`, choose the correct project, then call `map_project`.
+- **Never paste Bearer tokens, cookies, passwords, OTPs, or raw curl auth logs:** auth is handled locally, and the MCP config should only contain `command` and `args`.
 
-## Legacy CLI
+## Dry Run
 
-Git hook and quick manual workflows still exist for compatibility, but they are not required for MCP users.
-
-Quick manual log:
+`LOGWORK_DRY_RUN=1` makes Resource Optimiser writes return the request body instead of calling the API. Reads still hit the API.
 
 ```bash
-logwork-helper manual quick --message "Fix login bug"
-```
-
-Optional Git hook install:
-
-```bash
-~/.logwork-helper/setup.sh /path/to/repo-that-you-commit-in
-```
-
-On Windows, use:
-
-```powershell
-logwork-helper install-hook C:\path\to\repo-that-you-commit-in
-```
-
-Dry run:
-
-```bash
-LOGWORK_DRY_RUN=1 logwork-helper manual quick --message "Dry run task"
+LOGWORK_DRY_RUN=1 logwork quick -m "Dry run task"
+LOGWORK_DRY_RUN=1 logwork edit 304032 --desc "Dry run" --yes
 ```
 
 In Windows PowerShell:
 
 ```powershell
-$env:LOGWORK_DRY_RUN = "1"; logwork-helper manual quick --message "Dry run task"
+$env:LOGWORK_DRY_RUN = "1"; logwork quick -m "Dry run task"
 ```
 
 ## Release Checks
@@ -332,7 +303,7 @@ $env:LOGWORK_DRY_RUN = "1"; logwork-helper manual quick --message "Dry run task"
 Before publishing or tagging a release, run:
 
 ```bash
-logwork-helper release doctor --full
+logwork release doctor --full
 npm run release:check
 ```
 
@@ -343,7 +314,7 @@ The release doctor checks version consistency, git state, npm/GitHub auth, npm l
 Suggested repository description:
 
 ```text
-Local-first MCP server and terminal CLI for safe Resource Optimiser logwork automation.
+Log work to Resource Optimiser and Jira from the terminal, an MCP server for AI IDEs, and a terminal UI.
 ```
 
 Suggested topics:

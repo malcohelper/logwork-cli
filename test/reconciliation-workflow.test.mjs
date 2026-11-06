@@ -9,7 +9,7 @@ import {
 import {
   parseReconcileArgs,
   runReconcileCommand
-} from '../reconcile-cli.mjs';
+} from '../commands/reconcile.mjs';
 
 test('reconciliation accepts preset periods only', () => {
   assert.equal(normalizeReconciliationPeriod('this-week'), 'this_week');

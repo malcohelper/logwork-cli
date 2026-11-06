@@ -42,7 +42,7 @@ test('previewRoLogworkDelete and apply delete with fingerprint guard', async () 
     fetchLogwork: async () => approvedEntry,
     submitDelete: async (logworkId) => {
       deletes.push(logworkId);
-      return { dryRun: true };
+      return { dryRun: false };
     }
   });
 
@@ -58,4 +58,19 @@ test('previewRoLogworkDelete and apply delete with fingerprint guard', async () 
     }),
     /changed after preview/
   );
+});
+
+test('applyRoLogworkDelete reports a dry run instead of a delete', async () => {
+  const preview = await previewRoLogworkDelete({
+    logworkId: approvedEntry.id,
+    fetchLogwork: async () => approvedEntry
+  });
+  const result = await applyRoLogworkDelete({
+    preview,
+    confirm: true,
+    fetchLogwork: async () => approvedEntry,
+    submitDelete: async (logworkId) => ({ dryRun: true, method: 'DELETE', path: `/logwork/entries/${logworkId}` })
+  });
+  assert.equal(result.status, 'dry_run');
+  assert.match(result.summary, /Dry run: .* was not deleted/);
 });

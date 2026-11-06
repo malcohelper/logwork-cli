@@ -1,177 +1,164 @@
-# Logwork Helper
+# logwork-cli
 
-[npm version](https://www.npmjs.com/package/logwork-helper)
-[npm downloads](https://www.npmjs.com/package/logwork-helper)
+[npm version](https://www.npmjs.com/package/logwork-cli)
 [license](LICENSE)
 
-Local MCP server and terminal CLI for Resource Optimiser logwork and Jira self-hosted worklogs.
+Log work to Resource Optimiser (RO) and self-hosted Jira from the terminal, from an MCP server for AI IDEs, or from a terminal UI.
 
-Logwork Helper lets Cursor, Codex, Google Antigravity, GitHub Copilot / VS Code, Claude Code, and other MCP clients work with Resource Optimiser from your machine. It can query logged work, safely edit the hours or task name of an existing RO logwork, reconcile RO and Jira by day, preview and submit approved Resource Optimiser logwork, preview and submit approved Jira worklogs, map ticket prefixes to Resource Optimiser projects, keep a sanitized local apply history, schedule native OS reminders, and run a guided terminal flow through `logwork`.
+One command, `logwork`, covers everything:
 
-Credentials stay local. Resource Optimiser passwords and 2FA codes, and Jira Personal Access Tokens, are entered in Terminal only, never in MCP config or AI chat.
+- `logwork`: the terminal UI.
+- `logwork <command>`: one-shot commands such as `logwork query this-week` or `logwork edit 304032 --task "Bug Fix"`.
+- `logwork mcp`: the MCP server that Cursor, Codex, Google Antigravity, GitHub Copilot / VS Code and Claude Code connect to.
+
+Credentials stay local. Resource Optimiser passwords and 2FA codes, and Jira Personal Access Tokens, are entered in the terminal only. They never go into MCP config or AI chat.
 
 ## Install
 
-Requirements:
-
-- macOS or Windows 10/11
-- Node.js 22+
-- npm
-
-Install globally:
+Requirements: macOS or Windows 10/11, Node.js 22+, npm.
 
 ```bash
-npm install -g logwork-helper
+npm install -g logwork-cli
+logwork setup
 ```
 
-Prepare the local runtime used by MCP configs:
+`logwork setup` does the following:
+- installs the runtime to `~/.logwork-cli` (`%USERPROFILE%\.logwork-cli` on Windows),
+- links the `logwork` command,
+- offers to log in,
+- prints copy-ready MCP configs that use your real local path.
+
+## Upgrading from logwork-helper
+
+The package was renamed from `logwork-helper` to `logwork-cli`, and the `logwork-helper` command no longer exists. To upgrade:
 
 ```bash
-logwork-helper setup-user
+npm install -g logwork-cli
+logwork setup
 ```
 
-This creates the local Logwork Helper runtime (`~/.logwork-helper` on macOS, `%USERPROFILE%\.logwork-helper` on Windows), installs runtime dependencies there, links the terminal commands, and prints copy-ready MCP config snippets using your real local path.
+Most of the move is automatic:
 
-## Update
+- **Old global package:** `logwork setup` removes the global `logwork-helper` package, so its `logwork` command does not conflict with the new one.
+- **Local state:** on the first run, settings, project mappings, drafts, apply history and the reminder config are copied from `~/.logwork-helper` to `~/.logwork-cli`. The old directory is left in place.
+- **Login sessions:** your RO and Jira sessions are copied from the old Keychain / Credential Manager entry (`logwork-helper`) to the new one (`logwork-cli`), so you do not need to log in again.
+- **Repo mappings:** a repo that has `.logwork-helper.json` keeps using it until a `.logwork.json` exists.
+- **Reminder:** an enabled reminder is re-registered by `logwork setup`, and the old OS schedule is removed.
 
-Check npm for a newer release:
+Two things you need to do yourself:
+
+- **IDE config:** replace the old `logwork-helper` MCP entry with the new `logwork` entry printed by `logwork setup` or `/mcp`.
+- **MCP tool names:** the tool names changed. See the [old → new tool name table](docs/mcp-setup.md#tool-name-changes-from-logwork-helper).
+
+## Log In
 
 ```bash
-logwork-helper update check
+logwork login              # Resource Optimiser: email, password, 2FA in this terminal
+logwork login jira         # Jira Personal Access Token
+logwork login jira --base-url https://jira.example.com
+logwork status             # RO and Jira status, never prints tokens
+logwork logout [ro|jira]
 ```
 
-Install the latest release after an interactive confirmation:
+Sessions are stored in macOS Keychain or Windows Credential Manager. The default Jira URL is `https://jira-vnv.vinova.sg`.
 
-```bash
-logwork-helper update install
+## Commands
+
+```text
+logwork                 Open the terminal UI
+logwork query [period]  Booked vs logged hours with entry ids (today, yesterday, this-week, last-week, this-month, last-month)
+logwork quick [-m text] Log one entry for today with guided prompts
+logwork edit <id> ...   Change an existing RO entry (replaces it)
+logwork delete <id>     Delete a submitted or approved RO entry
+logwork reconcile       Compare RO and Jira hours by day (read-only)
+logwork history         Local apply history
+logwork login|logout|status [ro|jira]
+logwork setup           Install the runtime and print MCP configs
+logwork mcp             Run the MCP stdio server (used by IDE configs)
+logwork reminder ...    Weekday logwork reminder
+logwork update ...      Check for or install a new version
+logwork doctor          Write a sanitized diagnostics report
 ```
 
-The `logwork` terminal UI also shows a short notice when a newer release is available. Checks are cached for 24 hours and network errors never block logwork. Updating preserves OS credentials, project mappings, drafts, and apply history. Restart the terminal session and reconnect MCP clients after an update.
+Add `--help` to any command for its options.
 
-## Authenticate
+## Logwork Line Format
 
-Log in to Resource Optimiser from Terminal:
+Every Resource Optimiser entry has a **worklog task** and a free-text **description**. The worklog task is an RO catalog item such as `Feature Development` or `Code Review & Refactoring`. Write each line as:
 
-```bash
-logwork-helper auth login
+```text
+Monday, 01 Jun 2026
++2 Feature Development | Implement maintenance mode management and status UI (SCB-213)
++1 Code Review & Refactoring | Review system page PR (SCB-214)
 ```
 
-Follow the prompts for email, password, 2FA device, and 2FA code. The helper stores only the final Resource Optimiser session in your OS credential store: macOS Keychain on macOS, or Windows Credential Manager on Windows.
+- **Before `|`:** the RO worklog task name, or `#<id>`. MCP clients can list valid names with `list_tasks`.
+- **After `|`:** the description saved on the RO entry. Jira uses it as the worklog comment.
+- **Lines without `|`:** these still work in two cases. If the whole text is a catalog task name, the entry is saved with no description and a warning. If the assistant passes `defaultWorklogTask`, that task is used and the text becomes the description.
 
-Check auth status:
+The default tasks shared by all projects are:
 
-```bash
-logwork-helper auth status
+| id | Task | type_of_work |
+|---|---|---|
+| 71 | Feature Development | create |
+| 74 | Bug Fix | correct |
+| 182 | Code Review & Refactoring | improve |
+| 79 | Deployment & Release | create |
+| 181 | Requirements & Design | create |
+| 183 | Testing Activities | create |
+| 111 | Other Activities | other |
 
 ## API Notes
 
-- Read today bookings: `GET /member-logtime/timesheet`
-- Read default tasks: `GET /logwork/tasks/defaults?project_id=<id>`
-- Write logwork entry: `POST /logwork/entries`
-- Payload shape:
+- Read bookings: `GET /member-logtime/timesheet`
+- Read worklog tasks: `GET /logwork/tasks?project_id=<id>` and `GET /logwork/tasks/defaults?project_id=<id>`
+- Write an entry: `POST /logwork/entries`
+- Delete an entry: `DELETE /logwork/entries/:id`
+- Resubmit a rejected entry: `PATCH /logwork/entries/:id/resubmit`
 
 ```json
 {
-  "worklog_task_id": 79,
+  "worklog_task_id": 71,
   "type_of_work": "create",
-  "effort_hours": 1,
-  "logdate": "2026-11-05",
+  "effort_hours": 2,
+  "logdate": "2026-06-01",
   "project_id": 720,
-  "description": "SAP-37"
+  "description": "Implement maintenance mode management and status UI (SCB-213)"
 }
 ```
 
-For Jira self-hosted worklogs, create a Jira Personal Access Token in Jira, then save it from Terminal:
-
-```bash
-logwork-helper jira login
-```
-
-The default Jira URL is `https://jira-vnv.vinova.sg`. Override it with:
-
-```bash
-logwork-helper jira login --base-url https://jira.example.com
-```
-
-Check or delete Jira auth without printing the token:
-
-```bash
-logwork-helper jira status
-logwork-helper jira logout
-```
+`project_id` is sent only when the worklog task is a shared default task.
 
 ## Set Up MCP
 
-The easiest way to get the right config is from the terminal UI:
+`logwork setup` prints the configs. You can also open the terminal UI with `logwork` and type `/mcp` (or `/mcp cursor`, `/mcp antigravity`, `/mcp copilot`, `/mcp claude-code`, `/mcp codex`).
+
+Every client runs the same thing, `node ~/.logwork-cli/bin/logwork.mjs mcp`, under the server name `logwork`:
+
+```json
+{
+  "mcpServers": {
+    "logwork": {
+      "command": "node",
+      "args": ["/Users/you/.logwork-cli/bin/logwork.mjs", "mcp"]
+    }
+  }
+}
+```
+
+For Claude Code, run:
 
 ```bash
-logwork
+claude mcp add --transport stdio logwork -- node ~/.logwork-cli/bin/logwork.mjs mcp
 ```
 
-Then type:
+Restart or reload the IDE's MCP tools after saving.
 
-```text
-/mcp
-```
+The server exposes 15 tools. It also sends `instructions` covering the approval rules, the line format and the recommended call order. Every write is **two calls to the same tool**:
+1. Call the tool without `confirm`. It returns a preview with a `batchId` or `previewId` and a summary.
+2. After the user approves, call the same tool again with only that id and `confirm: true`.
 
-Choose your MCP client and copy the printed config. Supported clients:
-
-- Cursor
-- Google Antigravity
-- GitHub Copilot / VS Code
-- Claude Code
-- Codex
-
-You can also jump directly:
-
-```text
-/mcp cursor
-/mcp antigravity
-/mcp copilot
-/mcp claude-code
-/mcp codex
-```
-
-After saving the config, restart or reload your IDE MCP tools.
-
-MCP assistants can use `check_for_updates`, then call `apply_update` only after showing the exact version and receiving explicit approval. A successful MCP update requires reconnecting the MCP server.
-
-## Reminder
-
-Enable a smart native notification at 17:00, Monday-Friday:
-
-```bash
-logwork-helper reminder enable
-```
-
-Test and inspect it:
-
-```bash
-logwork-helper reminder test
-logwork-helper reminder status
-```
-
-The default target is Both. Resource Optimiser compares today's logged and booked hours; Jira checks whether the current user has any worklog today. Complete days stay silent. macOS uses a user `launchd` agent and Windows uses Task Scheduler; neither schedule stores credentials.
-
-Customize or disable it:
-
-```bash
-logwork-helper reminder enable --time 18:00 --target ro
-logwork-helper reminder disable
-```
-
-## Reconcile RO And Jira
-
-Compare Resource Optimiser and Jira without writing either system:
-
-```bash
-logwork-helper reconcile this-week
-logwork-helper reconcile last-month --json
-```
-
-The report shows booked, RO, and Jira hours by day. It also flags daily or issue-level mismatches. A correction suggestion is included only when an RO task contains exactly one Jira issue key; applying a suggestion still requires the normal target-specific preview and approval flow.
-
-Inside `logwork`, run `/reconcile` to pick a period or use `/reconcile this-week` directly. MCP clients can call the read-only `reconcile_logwork` tool.
+See [docs/mcp-setup.md](docs/mcp-setup.md#exposed-tools) for the tool table.
 
 Verify from your assistant:
 
@@ -179,28 +166,46 @@ Verify from your assistant:
 Check my logwork for this week.
 ```
 
-Full client examples are in [docs/mcp-setup.md](docs/mcp-setup.md).
-
 ## Edit Existing RO Logwork
 
-Use the logwork entry ID returned by `query_logwork` or `/query`:
+Get the entry id from `logwork query` (or `get_logwork` in MCP), then:
 
 ```bash
-logwork-helper edit 290364 --hours 0.5
-logwork-helper edit 290364 --task-name "Updated task name (SCB-470)"
-logwork-helper edit 290364 --hours 0.5 --task-name "Updated task name (SCB-470)"
+logwork edit 304032 --hours 0.5
+logwork edit 304032 --desc "Fix date picker timezone (SAP-42)"
+logwork edit 304032 --task "Bug Fix" --desc "Fix date picker timezone (SAP-42)"
+logwork edit 304032 --task "#74" --type correct
 ```
 
-The CLI reads the existing entry, previews the diff, and asks for confirmation. `--yes` is available for an already reviewed non-interactive command. Project and date are always preserved. Before writing, the helper re-reads the entry and blocks the update if it changed after preview; it then verifies the persisted result. RO entries created by Jira must be edited in Jira and are blocked by this flow.
+Options:
+- `--hours`
+- `--task`: a worklog task from the project catalog, or `#<id>`.
+- `--desc`
+- `--type`: `create`, `correct`, `improve` or `other`. When the task changes and `--type` is omitted, the new task's catalog type is used.
 
-Inside `logwork`, use:
+The long forms `--task-name` and `--description` also work. Project and date are always preserved.
 
-```text
-/edit-logwork 290364 --hours 0.5
-/edit-logwork 290364 --task-name Updated task name (SCB-470)
-```
+Resource Optimiser has no staff API for editing an entry; the edit endpoint is PM-only. So apply **replaces** the entry:
 
-MCP clients use `preview_ro_logwork_edit`, show the field-level diff, ask for approval, then call `apply_ro_logwork_edit` with the cached `previewId` and `confirm: true`.
+1. It re-reads the entry and stops if the entry changed after the preview.
+2. It creates the corrected entry with `POST /logwork/entries`.
+3. It deletes the original with `DELETE /logwork/entries/:id`.
+4. It verifies the new entry.
+
+If the create fails, the original is untouched. If the delete fails, the new entry is deleted again, so nothing changes.
+
+Deleting on RO needs no approval, and a correctly formatted new entry is approved immediately, so the edit takes effect at once. The new entry gets a **new logwork id**.
+
+Some entries cannot be edited this way:
+- Only `submitted` or `approved` entries can be edited.
+- Rejected entries are fixed with `resubmit_entry`.
+- Entries on locked days, entries created by Jira, and entries owned by another user are blocked.
+
+The CLI previews the diff and asks for confirmation. Use `--yes` for an already reviewed non-interactive command.
+
+In the terminal UI: `/edit-logwork 304032 --task Bug Fix --desc Fix date picker timezone (SAP-42)`.
+
+In MCP, call `edit_entry` with `logworkId` and the changes, show the summary, then call `edit_entry` with `previewId` and `confirm: true`. The result returns `originalLogworkId` and `newLogworkId`.
 
 ## Daily Use
 
@@ -213,59 +218,70 @@ Check whether I have logged anything today.
 ```text
 Preview this logwork and ask for my approval before submitting:
 Monday, 01 Jun 2026
-+2 Maintenance mode management and status UI (SCB-213)
-```
-
-```text
-Preview this Jira worklog and ask for my approval before submitting:
-Monday, 01 Jun 2026
-+2 Maintenance mode management and status UI (SCB-213)
++2 Feature Development | Maintenance mode management and status UI (SCB-213)
 ```
 
 ```text
 Set up the SCB ticket mapping to project 2621A-SIT-HTML BUILDER-PRJ.
 ```
 
-To log work directly from Terminal:
+From the terminal:
 
 ```bash
-logwork
+logwork quick -m "Fix login bug (SCB-12)"   # one entry for today
+logwork                                      # terminal UI
 ```
 
-Inside the terminal UI, `/logwork` opens a target picker. Use `/logwork ro` for Resource Optimiser, `/logwork jira` for Jira worklogs, or `/logwork both` to preview/apply both with separate approvals.
+In the terminal UI, `/logwork` opens a target picker. `/logwork ro` writes Resource Optimiser entries, `/logwork jira` writes Jira worklogs, and `/logwork both` previews and applies both with separate approvals. Type `/` to see every command, for example:
+- `/query this-week`
+- `/reconcile`
+- `/projects`
+- `/map SCB 5234`
+- `/history`
+- `/diagnostics`
 
-Useful terminal commands:
+## Reminder
 
-```text
-/query today
-/query yesterday
-/query this-week
-/query last-week
-/query this-month
-/query last-month
-/reconcile
-/reconcile this-week
-/logwork
-/logwork ro
-/logwork jira
-/logwork both
-/edit-logwork 290364 --hours 0.5
-/mcp
-/projects
-/projects 5234
-/map SCB 5234
-/history
-/diagnostics
+```bash
+logwork reminder enable                 # 17:00 Monday-Friday, RO and Jira
+logwork reminder enable --time 18:00 --target ro
+logwork reminder test
+logwork reminder status
+logwork reminder disable
 ```
+
+For Resource Optimiser, the reminder compares today's logged and booked hours. For Jira, it checks whether you have any worklog today. Complete days stay silent.
+
+macOS uses a user `launchd` agent (`sg.vinova.logwork-cli.reminder`) and Windows uses Task Scheduler (`Logwork Reminder`). Neither schedule stores credentials.
+
+## Reconcile RO And Jira
+
+```bash
+logwork reconcile this-week
+logwork reconcile last-month --json
+```
+
+This is read-only. It shows booked, RO and Jira hours by day and flags mismatches. A correction suggestion is included only when an RO entry contains exactly one Jira issue key. Applying a suggestion still goes through the normal preview and approval flow. MCP clients use the `reconcile` tool.
+
+## Update
+
+```bash
+logwork update check
+logwork update install
+```
+
+The terminal UI shows a short notice when a newer release is available. Checks are cached for 24 hours, and network errors never block logwork.
+
+Updating keeps OS credentials, project mappings, drafts and apply history. Reconnect MCP clients after an update.
 
 ## More Docs
 
-- [Integrated operations guide](docs/operations-guide.md): complete CLI/MCP feature matrix, RO/Jira/Both processing examples, mapping, reconciliation, history, reminders, updates, release flow, and OS validation.
-- [MCP setup](docs/mcp-setup.md): full client configs, exposed tools, verification prompts, and common MCP workflows.
-- [Security and auth](docs/security.md): Keycloak flow, Jira PAT flow, OS credential storage, stored files, and safety model.
-- [Advanced usage](docs/advanced.md): environment overrides, manual REPL details, updates, troubleshooting, legacy git hook, and release checks.
-- [Quick recipes](docs/recipes.md): copy-ready RO, Jira, Both, auth recovery, duplicate handling, mapping, and history workflows.
-- [Release checklist](RELEASE.md): publish and manual verification checklist.
+- [Operations guide](docs/operations-guide.md): CLI/MCP feature map, RO/Jira/Both processing, mapping, reconciliation, history, reminders, updates and OS validation.
+- [MCP setup](docs/mcp-setup.md): client configs, the tool table, the old → new tool names, and common workflows.
+- [Security and auth](docs/security.md): Keycloak flow, Jira PAT flow, OS credential storage, stored files and the safety model.
+- [Advanced usage](docs/advanced.md): environment overrides, terminal UI details, troubleshooting and release checks.
+- [Quick recipes](docs/recipes.md): copy-ready workflows.
+- [Release checklist](RELEASE.md).
 
 ## License
 

@@ -80,7 +80,7 @@ test('stored Jira status and logout use injectable storage', async () => {
 
   const missing = await getStoredJiraStatus({ storage });
   assert.equal(missing.authenticated, false);
-  assert.match(missing.summary, /jira login/);
+  assert.match(missing.summary, /logwork login jira/);
 });
 
 test('normalizeStoredJiraSession rejects malformed stored values', () => {

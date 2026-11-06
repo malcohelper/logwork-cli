@@ -11,7 +11,7 @@ import {
   isNewerVersion,
   parseSemver
 } from '../lib/update-service.mjs';
-import { parseUpdateArgs, runUpdateCli } from '../update-cli.mjs';
+import { parseUpdateArgs, runUpdateCli } from '../commands/update.mjs';
 
 test('SemVer parsing and comparison reject unsafe or ambiguous versions', () => {
   assert.equal(parseSemver('1.2.3')?.raw, '1.2.3');
@@ -34,7 +34,7 @@ test('update check fetches npm latest, writes cache, and reuses it for 24 hours'
   const fetchImpl = async (url, options) => {
     requests.push({ url, options });
     return new Response(JSON.stringify({
-      name: 'logwork-helper',
+      name: 'logwork-cli',
       version: '0.1.11'
     }), {
       status: 200,
@@ -43,27 +43,27 @@ test('update check fetches npm latest, writes cache, and reuses it for 24 hours'
   };
 
   const first = await checkForUpdates({
-    packageInfo: { name: 'logwork-helper', version: '0.1.10' },
+    packageInfo: { name: 'logwork-cli', version: '0.1.10' },
     cachePath,
     fetchImpl,
     now: () => nowValue
   });
   const second = await checkForUpdates({
-    packageInfo: { name: 'logwork-helper', version: '0.1.10' },
+    packageInfo: { name: 'logwork-cli', version: '0.1.10' },
     cachePath,
     fetchImpl: async () => { throw new Error('cache should avoid network'); },
     now: () => nowValue + 60_000
   });
 
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].url, 'https://registry.npmjs.org/logwork-helper/latest');
+  assert.equal(requests[0].url, 'https://registry.npmjs.org/logwork-cli/latest');
   assert.equal(first.status, 'update_available');
   assert.equal(first.source, 'registry');
   assert.equal(second.source, 'cache');
   assert.equal(second.latestVersion, '0.1.11');
   const stored = JSON.parse(await readFile(cachePath, 'utf8'));
   assert.deepEqual(stored, {
-    packageName: 'logwork-helper',
+    packageName: 'logwork-cli',
     latestVersion: '0.1.11',
     checkedAt: '2026-07-15T00:00:00.000Z'
   });
@@ -73,10 +73,10 @@ test('update check can fall back to a valid stale cache without hiding the warni
   const dir = await mkdtemp(join(tmpdir(), 'logwork-update-stale-'));
   const cachePath = join(dir, 'update-state.json');
   await checkForUpdates({
-    packageInfo: { name: 'logwork-helper', version: '0.1.10' },
+    packageInfo: { name: 'logwork-cli', version: '0.1.10' },
     cachePath,
     fetchImpl: async () => new Response(JSON.stringify({
-      name: 'logwork-helper',
+      name: 'logwork-cli',
       version: '0.1.11'
     }), { status: 200 }),
     now: () => Date.parse('2026-07-01T00:00:00.000Z')
@@ -84,7 +84,7 @@ test('update check can fall back to a valid stale cache without hiding the warni
 
   const result = await checkForUpdates({
     force: true,
-    packageInfo: { name: 'logwork-helper', version: '0.1.10' },
+    packageInfo: { name: 'logwork-cli', version: '0.1.10' },
     cachePath,
     fetchImpl: async () => { throw new Error('offline token=secret'); },
     now: () => Date.parse('2026-07-15T00:00:00.000Z')
@@ -98,7 +98,7 @@ test('update check can fall back to a valid stale cache without hiding the warni
 
 test('update install requires confirmation and executes only npm latest with argument arrays', async () => {
   const calls = [];
-  const packageInfo = { name: 'logwork-helper', version: '0.1.10' };
+  const packageInfo = { name: 'logwork-cli', version: '0.1.10' };
   const checkForUpdatesFn = async (options) => {
     assert.equal(options.force, true);
     assert.equal(options.allowStaleOnError, false);
@@ -134,10 +134,10 @@ test('update install requires confirmation and executes only npm latest with arg
     'exec',
     '--yes',
     '--registry=https://registry.npmjs.org',
-    '--package=logwork-helper@0.1.11',
+    '--package=logwork-cli@0.1.11',
     '--',
-    'logwork-helper',
-    'setup-user',
+    'logwork',
+    'setup',
     '--no-login'
   ]);
   assert.equal(calls[0].options.stdio, 'pipe');
@@ -154,7 +154,7 @@ test('update install requires confirmation and executes only npm latest with arg
 test('update install verifies the copied runtime version', async () => {
   await assert.rejects(() => installUpdate({
     confirm: true,
-    packageInfo: { name: 'logwork-helper', version: '0.1.10' },
+    packageInfo: { name: 'logwork-cli', version: '0.1.10' },
     checkForUpdatesFn: async () => ({ latestVersion: '0.1.11' }),
     runCommand: async () => ({ code: 0, stdout: '', stderr: '' }),
     readInstalledVersion: async () => '0.1.10'
@@ -226,6 +226,6 @@ test('startup update notice is concise and actionable', () => {
       currentVersion: '0.1.10',
       latestVersion: '0.1.11'
     }),
-    'Update available: 0.1.10 -> 0.1.11. Run `logwork-helper update install`.'
+    'Update available: 0.1.10 -> 0.1.11. Run `logwork update install`.'
   );
 });

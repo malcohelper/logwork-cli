@@ -44,7 +44,7 @@ test('previewRoLogworkResubmit and apply use fingerprint guard', async () => {
     fetchLogwork: async () => rejectedEntry,
     submitResubmit: async (payload) => {
       writes.push(payload);
-      return { dryRun: true };
+      return { dryRun: false };
     }
   });
 

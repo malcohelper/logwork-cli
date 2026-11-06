@@ -1,13 +1,13 @@
 # Security And Auth
 
-Logwork Helper does not accept or store Bearer tokens in config files. Resource Optimiser login and Jira PAT login both run in Terminal.
+logwork-cli does not accept or store Bearer tokens in config files. Resource Optimiser login and Jira PAT login both run in Terminal.
 
 ## Auth Setup
 
 Start login:
 
 ```bash
-logwork-helper auth login
+logwork login
 ```
 
 What happens:
@@ -23,13 +23,13 @@ What happens:
 Check auth status without printing the token:
 
 ```bash
-logwork-helper auth status
+logwork status
 ```
 
 Delete the stored token:
 
 ```bash
-logwork-helper auth logout
+logwork logout
 ```
 
 ## Auth Notes
@@ -52,27 +52,29 @@ https://jira-vnv.vinova.sg
 Start Jira auth:
 
 ```bash
-logwork-helper jira login
+logwork login jira
 ```
 
 Use a different Jira URL only when needed:
 
 ```bash
-logwork-helper jira login --base-url https://jira.example.com
+logwork login jira --base-url https://jira.example.com
 ```
 
 What happens:
 
 1. You paste the Jira Personal Access Token in Terminal.
 2. The helper validates the token with `GET /rest/api/2/myself`.
-3. The helper stores `{ baseUrl, token, user }` in the OS credential store under service `logwork-helper`, account `jira`.
+3. The helper stores `{ baseUrl, token, user }` in the OS credential store under service `logwork-cli`, account `jira`.
 
 Check or delete Jira auth without printing the token:
 
 ```bash
-logwork-helper jira status
-logwork-helper jira logout
+logwork status jira
+logwork logout jira
 ```
+
+Sessions saved by `logwork-helper` (service `logwork-helper`) are read once and copied to service `logwork-cli`, so an upgrade does not require a new login. `logwork logout` removes both entries.
 
 Jira username/password login is not supported in MCP. Do not paste Jira passwords, PATs, cookies, or raw Jira auth logs into AI chat.
 
@@ -80,96 +82,70 @@ Jira username/password login is not supported in MCP. Do not paste Jira password
 
 ```mermaid
 flowchart TD
-  A["User runs logwork-helper auth login"] --> B["Helper creates fresh Keycloak authorize request"]
+  A["User runs logwork login"] --> B["Helper creates fresh Keycloak authorize request"]
   B --> C["User enters email/password/device/2FA in terminal"]
   C --> D["Helper exchanges Keycloak authorization code"]
   D --> E["Helper calls Resource Optimiser signinKeyCloak"]
   E --> F["Helper validates JWT expiry and user id"]
   F --> G["Final RO access/refresh session saved to OS credential store"]
   G --> H["MCP tools call Resource Optimiser APIs with the local credential session"]
-  L["User runs logwork-helper jira login"] --> M["User pastes Jira PAT in terminal"]
+  L["User runs logwork login jira"] --> M["User pastes Jira PAT in terminal"]
   M --> N["Helper validates GET /rest/api/2/myself"]
   N --> O["Jira PAT session saved to OS credential store account jira"]
   O --> P["MCP Jira tools call Jira REST APIs with the local PAT"]
 
   I["MCP config"] -. "no token" .-> H
   I -. "no Jira PAT" .-> P
-  J[".logwork-helper.json"] -. "project mapping only" .-> H
+  J[".logwork.json"] -. "project mapping only" .-> H
   K["AI chat / MCP args"] -. "no password or 2FA" .-> C
   K -. "no Jira username/password/PAT" .-> M
 ```
 
 ## Stored Files
 
-Installed runtime:
+The runtime and local state live in `~/.logwork-cli` (`%USERPROFILE%\.logwork-cli` on Windows). `LOGWORK_HOME` overrides this location, and the older `LOGWORK_HELPER_HOME` is still honored. When upgrading from `logwork-helper`, the state files below are copied once from `~/.logwork-helper`, which is left in place.
 
-```text
-~/.logwork-helper
-```
+| File | Content |
+| --- | --- |
+| `.logwork.json` | Project mappings: ticket prefixes and keywords. A repo-level `.logwork.json` (or a legacy `.logwork-helper.json`) holds project-scope mappings. |
+| `manual-drafts.json` | Terminal UI drafts. |
+| `apply-ledger.json` | Sanitized apply history. |
+| `update-state.json` | Update check cache: package name, latest SemVer, and check timestamp. Expires after 24 hours and contains no npm credentials. |
+| `reminder.json`, `reminder-state.json` | Reminder config: enabled state, local time, target and weekdays. Last-run state: sanitized timestamps and status summaries. |
+| `diagnostics/` | Sanitized diagnostics reports from `logwork doctor`. |
 
-On Windows this is under:
+The apply ledger stores the target, flow target, batch ID, timestamp, workspace path, entry metadata, and submitted/failed/blocked status. It does not store credentials, cookies, or raw API responses, and token-like error text is redacted before writing.
 
-```text
-%USERPROFILE%\.logwork-helper
-```
-
-Project mapping config:
-
-```text
-~/.logwork-helper/.logwork-helper.json
-```
-
-Manual drafts:
-
-```text
-~/.logwork-helper/manual-drafts.json
-```
-
-Sanitized apply ledger:
-
-```text
-~/.logwork-helper/apply-ledger.json
-```
-
-The apply ledger stores target, flow target, batch ID, timestamp, workspace path, entry metadata, and submitted/failed/blocked status. It does not store credentials, cookies, or raw API responses, and token-like error text is redacted before writing.
-
-Update check cache:
-
-```text
-~/.logwork-helper/update-state.json
-```
-
-The update cache stores only the package name, latest SemVer, and check timestamp. It expires after 24 hours and contains no npm credentials.
-
-Reminder configuration and last-run state:
-
-```text
-~/.logwork-helper/reminder.json
-~/.logwork-helper/reminder-state.json
-```
-
-Reminder config stores only enabled state, local time, target, and weekdays. Reminder state stores sanitized timestamps and status summaries. The macOS launch agent and Windows scheduled task contain only fixed Node/script paths and never contain RO tokens, Jira PATs, passwords, or API responses.
-
-Diagnostics reports:
-
-```text
-~/.logwork-helper/diagnostics
-```
+The macOS launch agent and Windows scheduled task contain only fixed Node and script paths (`bin/logwork.mjs reminder run`). They never contain RO tokens, Jira PATs, passwords, or API responses.
 
 ## Safety Model
 
-- Token is not stored in MCP config.
-- Token is not stored in `.logwork-helper.json`.
-- Email may be remembered in the OS credential store to prefill the next login.
-- MCP writes logwork only after an assistant calls `apply_logwork_batch` with explicit confirmation and a cached preview `batchId`.
-- MCP edits an existing RO logwork only after `apply_ro_logwork_edit` receives explicit confirmation and a cached `previewId`. It preserves project/date, rejects Jira-created entries, stale-checks the original entry, and verifies the saved result.
-- MCP writes Jira worklogs only after an assistant calls `apply_jira_worklog_batch` with explicit confirmation and a cached Jira preview `batchId`.
-- Resource Optimiser apply and Jira worklog apply are separate flows. Applying Resource Optimiser logwork does not automatically write Jira worklogs.
-- Jira duplicate detection is blocking and has no override option in v1.
-- `query_logwork`, `reconcile_logwork`, `query_apply_history`, and `list_logwork_projects` are read-only.
+**Where secrets are never stored**
+- Tokens are not stored in MCP config or in `.logwork.json`.
+- The email address may be remembered in the OS credential store to prefill the next login.
+
+**How MCP writes are gated**
+- Every MCP write is two calls to the same tool. The first call, without `confirm`, returns a cached preview with a `batchId` or `previewId`. The second call must pass that id with `confirm: true`, which the assistant sends only after explicit approval.
+- The apply call writes the cached preview as-is. It rejects content fields such as `text` or `hours`, so nothing can be changed after approval without a new preview.
+- `edit_entry` preserves the project and date. It rejects entries that are Jira-created, rejected, or on a locked day, and stale-checks the original entry.
+- `edit_entry` apply replaces the entry: it creates the corrected entry first, then deletes the original, and rolls back the new entry if the delete fails. It then verifies the new entry.
+- `log_work` (Resource Optimiser) and `log_jira_work` (Jira) are separate flows. Applying Resource Optimiser logwork does not write Jira worklogs.
+- Jira duplicate detection is blocking and has no override option.
+
+**Read-only tools**
+- `get_logwork`, `list_projects`, `list_tasks`, `get_jira_issue`, `reconcile`, and `get_history` are read-only.
 - Reconciliation accepts preset periods only, filters Jira worklogs to the stored Jira user, and never applies its correction suggestions directly.
-- `check_for_updates` is read-only. `apply_update` requires `confirm: true`, re-checks npm latest, accepts only exact SemVer, and cannot receive an arbitrary registry or shell command.
-- Update installation preserves local files and OS credential-store entries. The current MCP process must be reconnected after a successful update.
-- `get_logwork_reminder` is read-only. `configure_logwork_reminder` and `test_logwork_reminder` require `confirm: true` and do not accept arbitrary scheduler commands, paths, JQL, or credentials.
-- The background reminder reads RO/Jira sessions from the OS credential store only when it runs. Notification and state text are sanitized and never include raw API responses.
+
+**Updates**
+- `update` with `action: "check"` is read-only.
+- `update` with `action: "install"` requires `confirm: true`, re-checks npm latest, accepts only an exact SemVer, and cannot receive an arbitrary registry or shell command.
+- Installation preserves local files and OS credential-store entries. The current MCP process must be reconnected after a successful update.
+
+**Reminder**
+- `reminder` with `action: "status"` is read-only.
+- `enable`, `disable` and `test` require `confirm: true`. They never accept arbitrary scheduler commands, paths, JQL, or credentials.
+- The background reminder reads RO and Jira sessions from the OS credential store only when it runs. Notification and state text are sanitized and never include raw API responses.
+
+**Login and diagnostics**
+- `login` never accepts credentials. It only opens or explains a terminal login.
 - Diagnostics reports redact tokens, cookies, passwords, OTPs, auth codes, and raw HTML.

@@ -4,46 +4,118 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A macOS-only Git `commit-msg` hook plus an interactive Node.js (ESM, Node 20+) CLI that logs work hours to Resource Optimiser. It reads the user's auth token from Safari `localStorage` via `osascript`, lists only projects booked for today, and PATCHes a logtime entry. The only runtime dependency is `@clack/prompts`. User-facing prompt text is in Vietnamese; keep that convention when editing `lib/ui.mjs`.
+`logwork-cli` (npm, repo `malcohelper/logwork-cli`, Node 22+, ESM `.mjs`, macOS and Windows) logs work hours to Resource Optimiser (RO) and self-hosted Jira. The package was renamed from `logwork-helper` in 0.3.0. The `logwork-helper` command no longer exists.
+
+## Layout
+
+- **`bin/logwork.mjs`** is the single entry. The npm bins `logwork` and `logwork-cli` both point here. Its `COMMANDS` table maps each command name to a lazily imported `commands/*.mjs` module and the function to call, and runs it **in-process**. There is no child process, so the cwd is preserved.
+  - With no command (or only flags), it opens the Ink terminal UI (`commands/tui.mjs` → `lib/manual-repl.mjs`).
+  - It runs `migrateLegacyHome()` before every command.
+- **`commands/`**: one module per CLI command:
+  - `query`
+  - `quick`: in-process guided single entry, using `lib/ui.mjs`
+  - `edit`, `delete`
+  - `reconcile`, `history`
+  - `auth`: `runLogin` / `runLogout` / `runStatus`, with target `ro|jira`
+  - `setup`: copies the runtime to `~/.logwork-cli`, `npm ci`, removes the global `logwork-helper`, `npm link`, re-registers the reminder, prints MCP configs
+  - `reminder`, `update`, `doctor`, `release`, `tui`
+- **`lib/`**: shared workflows, API clients and OS integration. Notable modules:
+  - `config.mjs`
+  - `mcp-server.mjs`: exports `startMcpServer` and the preview-cache helpers.
+  - `manual-mcp.mjs`: MCP config snippets.
+  - `paths.mjs` and `legacy-migration.mjs`.
+- `logwork mcp` (`node <home>/bin/logwork.mjs mcp`) is what IDE configs run, under the server name `logwork`.
+
+The old git `commit-msg` hook, `install.mjs`, `hooks/`, `lib/protocol.mjs` and `lib/git-message.mjs` were removed.
 
 ## Commands
 
-There is no build step, linter, or test suite.
-
 ```bash
-npm ci                                   # install deps
-npm run log [-- "Task message"]          # manual log flow (no commit needed)
-npm run log:dry-run                      # same, but never calls the write API
-node install.mjs [--dry-run] <repo>      # install hook into a target repo
-./setup.sh <repo>                        # npm ci + install.mjs, with prereq checks
-LOGWORK_DRY_RUN=1 git commit             # exercise the hook without writing logtime
+npm ci
+npm test                                   # node --test, all suites in test/*.test.mjs
+node --test test/batch-workflow.test.mjs   # single suite
+npm run dry-run                            # terminal UI with LOGWORK_DRY_RUN=1
+LOGWORK_DRY_RUN=1 node bin/logwork.mjs mcp # MCP server without RO writes
+npm run release:check                      # tests + audit + pack + diff check
 ```
 
-`LOGWORK_DRY_RUN=1` is checked only in `addLogtime` (`lib/api.mjs`): it still reads the token and calls the read APIs, but skips the PATCH. Everything that touches Safari/Terminal requires macOS with `osascript`, so the end-to-end flow cannot run in a Linux container.
+User-facing CLI:
+- `logwork`, `logwork query`, `logwork quick`, `logwork edit`, `logwork delete`
+- `logwork reconcile`, `logwork history`
+- `logwork login|logout|status [ro|jira]`
+- `logwork setup`, `logwork mcp`, `logwork reminder`, `logwork update`, `logwork doctor`, `logwork release`
 
-## Architecture
+`LOGWORK_DRY_RUN=1` makes the RO write functions in `lib/api.mjs` return the request body instead of calling the API. Reads still hit the API.
 
-### Hook ↔ helper protocol (the non-obvious part)
+`LOGWORK_HOME` relocates local state; `LOGWORK_HELPER_HOME` is still honored. Tests set one of them to a temp dir, which also disables the legacy migration.
 
-The commit hook cannot run an interactive TUI inside a GUI Git client, so it hands off to a separate Terminal window and waits on files:
+## Logwork entry model (important)
 
-1. `install.mjs` renders `hooks/commit-msg.template` into the target repo's hooks dir, substituting `__NODE_BIN__` (absolute `process.execPath` at install time, which is why setup must be re-run after changing Node versions), `__HELPER_DIR__`, `__EXISTING_HOOK__`, `__HOOK_TIMEOUT_MS__`, and `__POLL_MS__` (the last two come from `config.mjs`). Any pre-existing non-managed hook is renamed to `commit-msg.logwork-backup.<timestamp>` and chained to run first. A hook is recognized as managed by the marker comment `Logwork Helper managed commit-msg hook`.
-2. At commit time the hook writes a lock file (`.git/logwork.lock`) containing a nonce, opens Terminal via AppleScript running `logwork-helper.mjs` with `--repo --msg-file --lock --result --nonce --terminal-title`, then polls until the lock disappears or the timeout hits.
-3. `logwork-helper.mjs` always, in `finally`, writes `.git/logwork.result` (JSON `{nonce, status, reason, timestamp}`, atomic write via `lib/protocol.mjs`) and removes the lock. It then closes its Terminal window on `ok`/`skip` or focuses it on `abort`.
-4. The hook verifies the result nonce matches and exits 0 for `ok`/`skip`, 1 otherwise. If node dies without writing a result, a shell fallback in the Terminal command writes an `abort` result.
+An RO entry is created with `POST /logwork/entries`. The body has:
+- `worklog_task_id`: a catalog task from `GET /logwork/tasks` + `/logwork/tasks/defaults` for the project;
+- `effort_hours`;
+- `logdate` (`YYYY-MM-DD`);
+- `type_of_work` (`create|correct|improve|other`);
+- `description`: free text;
+- `project_id`: only when the task is a shared default.
 
-`manual-log.mjs` reuses the same helper by faking this protocol: it creates a temp dir with a fake `COMMIT_EDITMSG`, lock, and result file, spawns the helper inline (`--close-terminal false`), and maps the result to its exit code. When changing helper arguments or result semantics, update the hook template, `manual-log.mjs`, and `lib/protocol.mjs` (`REQUIRED_ARGS`, `writeResult`) together. The allowed statuses live in `CONFIG.resultValues`.
+Batch text (MCP, terminal paste, and wizard) uses:
 
-### Auth
+```text
+Monday, 01 Jun 2026
++2 Feature Development | Implement maintenance mode UI (SCB-213)
+```
 
-`lib/auth.mjs#getFreshToken` reads the JWT from Safari tabs whose host is in `CONFIG.allowedSafariHosts` (`lib/macos.mjs` uses JXA `doJavaScript`). If it is missing or expired, it opens the login URL in Safari and polls until a fresh token appears. The user id comes from the JWT payload (`id`/`user_id`/`sub`). On any API 401, `logwork-helper.mjs` forces a re-login and retries once. The token must never be logged, passed via argv, or written to lock/result files.
+- **Parsing:** `lib/batch-parser.mjs` splits on the first `|` into `taskName` (worklog task) and `description`, with `taskExplicit: true`. Without `|`, `taskName` is the whole text, `description` is empty, and `taskExplicit` is false. `text` keeps the full line, and `tickets` are extracted from it.
+- **Task resolution:** `lib/batch-workflow.mjs#attachWorklogTaskTargets` resolves the worklog task per entry.
+  - With `|`: the task is resolved by name, or by `#<id>`, in `worklog-task-resolver.mjs`.
+  - Without `|`: if the whole text is a catalog task, it is used and the entry gets `descriptionMissing: true`. Otherwise `defaultWorklogTask` supplies the task and the text becomes the description. With no default, the entry is unresolved with reason `worklog_task_required` and `availableTaskNames`.
+- **Batch ids:** `createBatchId` hashes the full line text, so a description change produces a new `batchId`. `defaultWorklogTask` is also folded into the `batchId`.
+- **Project resolution:** `lib/project-resolver.mjs` scores the full line (`entry.text`) against mappings, ticket prefixes and booked projects. It leaves an entry unresolved rather than guessing.
+- **Jira:** `lib/jira-workflow.mjs` uses `description` (or the whole text) as the worklog comment and ignores the RO task part.
 
-### API layer
+## MCP server conventions
 
-`lib/api.mjs` talks to `CONFIG.apiBase`. The live flow uses only `getTodayTimesheetProjects` (GET `/member-logtime/timesheet`) and `addLogtime` (PATCH `/member-logtime/:project_member_id` with an `add_data` array). The timesheet response shape is not pinned down, so `collectTimesheetRows` walks the whole JSON tree for rows matching today's date (via date fields or date-named keys), and `pickFirst`/`readNumber` try long lists of candidate field names. Extend those candidate lists rather than hard-coding one shape. Projects are grouped by `project_member_id`, and those with zero booked hours are dropped. Assigned percent is booked hours divided by `CONFIG.standardDayHours` (8). `getProjects`, `getDayLogs`, and `getAllDayLogSummaries` are currently unused by the main flow.
+The server exposes 15 tools:
+- **Read:** `get_logwork`, `list_projects`, `list_tasks`, `get_jira_issue`, `reconcile`, `get_history`
+- **Write:** `log_work`, `edit_entry`, `resubmit_entry`, `delete_entry`, `log_jira_work`, `map_project`
+- **Other:** `login` (`target`), `reminder` (`action`), `update` (`action`)
 
-Dates are local calendar dates (`YYYY-MM-DD` from `todayLocalDateISO`) sent to the API as `YYYY-MM-DDT00:00:00.000Z` (`toApiLogDate`). This is intentional, not a timezone bug.
+Rules:
+- Every tool sets `title`, `description`, `annotations` (the `READ_ONLY`, `WRITE`, `DESTRUCTIVE` and `LOCAL_*` constants) and a `.describe()` on every input param. `test/mcp-smoke.test.mjs` enforces this and the exact tool list, so update both when adding a tool.
+- `SERVER_INSTRUCTIONS` (exported from `lib/mcp-server.mjs`) is sent as MCP `instructions`. Keep it in sync with the line format and approval rules.
+- Writes are **two calls to the same tool**.
+  - Without `confirm`, the tool previews and caches the result by `batchId` or `previewId`. The TTL is 1h and the cache is fingerprint-checked. RO edit, resubmit and delete previews are cached with `setCachedRoEditPreview`.
+  - With the id and `confirm: true`, the tool consumes the cached preview and applies it.
+  - Apply calls must reject content fields (`assertApplyOnly`), and preview calls must have their required inputs (`requirePreviewInput`).
+  - Do not split tools back into `preview_*` / `apply_*` pairs.
+- MCP tools never accept passwords, OTPs or tokens. Auth errors return `authRequired` and point to the `login` tool or to `logwork login` / `logwork login jira`.
 
-### Commit message
+## Auth and local state
 
-`lib/git-message.mjs` strips `#` comment lines and everything after the verbose-commit scissors line, then uses the first paragraph as the default task name (falling back to `Work update`).
+- **RO auth** (`lib/api-auth.mjs`, `lib/auth.mjs`) runs the Keycloak login over HTTP from the terminal: email, password, 2FA. The session, including the refresh token, is stored in macOS Keychain or Windows Credential Manager (`lib/credential-store.mjs`) under service `logwork-cli`. On a 401, workflows force a re-login and retry once.
+- **Jira** uses a PAT saved via `logwork login jira`.
+- **Local files** live under `~/.logwork-cli`:
+  - project mappings in `.logwork.json` (user scope; or project scope in the cwd, where a legacy `.logwork-helper.json` is used until a `.logwork.json` exists);
+  - drafts;
+  - the apply ledger (`lib/apply-ledger.mjs`, sanitized);
+  - diagnostics;
+  - the update cache;
+  - the reminder config.
+- **Migration from logwork-helper:**
+  - `lib/legacy-migration.mjs` copies state files once from `~/.logwork-helper`, renaming `.logwork-helper.json` to `.logwork.json`. It writes the marker `.migrated-from-logwork-helper`, never overwrites existing files, and is skipped when a custom home is set.
+  - `credential-store.mjs#withLegacyService` reads the old `logwork-helper` service on a miss and copies the value forward. `delete` clears both services.
+  - `reminder-scheduler.mjs` removes the legacy launchd label and Windows task whenever it installs or removes a schedule.
+- Never log tokens, put them in argv, or write them to state files (`lib/auth-redaction.mjs`).
+
+## Other notes
+
+- `lib/api.mjs` normalizes loosely shaped RO responses with candidate field lists. Extend those lists rather than hard-coding one shape.
+- RO has no staff edit endpoint (`PATCH /logwork/pm/entries/:id/edit-approve` is PM-only), so `lib/ro-edit-workflow.mjs` edits by replace:
+  - It reads the entry from three sources: legacy `GET /member-logtime/:id` (date, owner), `GET /logwork/day` (status, `worklog_task_id`, type, description), and the project-member list (`project_id`).
+  - It creates the corrected entry with `POST /logwork/entries`, then deletes the original with `DELETE /logwork/entries/:id`. If the delete fails, it rolls the new entry back. The new entry gets a new id.
+  - Deleting needs no approval, and new entries are approved immediately, so an edit takes effect at once. The per-entry `is_locked` flag on approved entries does not block deletion; only the day-level `isLocked` does.
+  - Only `submitted` and `approved` entries can be edited. Rejected entries use resubmit (`PATCH /logwork/entries/:id/resubmit`).
+  - The legacy `PATCH /member-logtime` (`updateLogtime` in `api.mjs`) is no longer used by any flow.
+- Dates are local calendar dates.
+- Docs to keep in sync with behavior: `README.md`, `docs/mcp-setup.md` (tool table, old → new tool names, line format), `docs/operations-guide.md`, `docs/recipes.md`, `docs/advanced.md`, `docs/security.md`, `RELEASE.md`.

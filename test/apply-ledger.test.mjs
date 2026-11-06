@@ -9,7 +9,7 @@ import {
   recordApplyResult,
   recordApplyResultSafely
 } from '../lib/apply-ledger.mjs';
-import { parseHistoryArgs, runHistoryCommand } from '../history-cli.mjs';
+import { parseHistoryArgs, runHistoryCommand } from '../commands/history.mjs';
 
 test('apply ledger stores sanitized local outcomes and filters Both flows', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'logwork-ledger-'));

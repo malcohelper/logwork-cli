@@ -1,10 +1,7 @@
-#!/usr/bin/env node
-
-import { isMainModule } from './lib/entrypoint.mjs';
 import {
   normalizeReconciliationPeriod,
   reconcileLogwork
-} from './lib/reconciliation-workflow.mjs';
+} from '../lib/reconciliation-workflow.mjs';
 
 export function parseReconcileArgs(args = []) {
   const options = {
@@ -52,14 +49,7 @@ export async function runReconcileCommand(args = [], {
 
 export function formatReconcileHelp() {
   return `Usage:
-  logwork-helper reconcile [today|yesterday|this-week|last-week|this-month|last-month] [--json]
+  logwork reconcile [today|yesterday|this-week|last-week|this-month|last-month] [--json]
 
 Compares Resource Optimiser and Jira worklog hours by day. This command is read-only. Correction suggestions must still go through the existing target-specific preview and approval flow.`;
-}
-
-if (isMainModule(import.meta.url)) {
-  runReconcileCommand(process.argv.slice(2)).catch((error) => {
-    console.error(`Reconciliation error: ${error.message}`);
-    process.exitCode = 1;
-  });
 }
