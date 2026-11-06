@@ -67,7 +67,7 @@ The gate must pass all of the following:
 - Confirm the printed MCP config uses server name `logwork` and `node ~/.logwork-cli/bin/logwork.mjs mcp`.
 - Run `logwork --help` and `logwork --version`.
 - Run `logwork update check --force` against the published npm version.
-- Run `logwork mcp` through an MCP client smoke test and confirm it lists the 15 tools (`get_logwork`, `list_projects`, `list_tasks`, `log_work`, `edit_entry`, `resubmit_entry`, `delete_entry`, `log_jira_work`, `get_jira_issue`, `reconcile`, `get_history`, `map_project`, `login`, `reminder`, `update`).
+- Run `logwork mcp` through an MCP client smoke test and confirm it lists the 16 tools (`get_logwork`, `draft_from_commits`, `list_projects`, `list_tasks`, `log_work`, `edit_entry`, `resubmit_entry`, `delete_entry`, `log_jira_work`, `get_jira_issue`, `reconcile`, `get_history`, `map_project`, `login`, `reminder`, `update`).
 - Confirm the `update` tool requires `confirm: true` for `action: "install"`, and `reconcile` takes preset periods only with no credential or confirmation fields.
 - Run `logwork reconcile this-week` and confirm it reports RO/Jira daily totals without writing either system.
 - On a machine with an older `logwork-helper` install, confirm the first run copies state to `~/.logwork-cli` and `logwork status` shows the existing session without a new login.

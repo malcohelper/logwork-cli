@@ -76,10 +76,19 @@ Monday, 01 Jun 2026
 
 ## MCP server conventions
 
-The server exposes 15 tools:
-- **Read:** `get_logwork`, `list_projects`, `list_tasks`, `get_jira_issue`, `reconcile`, `get_history`
+The server exposes 16 tools and one prompt:
+- **Read:** `get_logwork`, `draft_from_commits`, `list_projects`, `list_tasks`, `get_jira_issue`, `reconcile`, `get_history`
 - **Write:** `log_work`, `edit_entry`, `resubmit_entry`, `delete_entry`, `log_jira_work`, `map_project`
 - **Other:** `login` (`target`), `reminder` (`action`), `update` (`action`)
+- **Prompt:** `log_from_commits`. It serves `skills/logwork/SKILL.md` (read by `lib/agent-skill.mjs`), the single source of the agent procedure that `logwork skill install` also copies to `~/.claude/skills` and `~/.codex/skills`.
+
+`lib/commit-workflow.mjs` builds the commit draft:
+- reads `git log --branches --remotes` for the author;
+- groups commits per day by repo + ticket + kind of work;
+- maps the kind of work to a default worklog task with `WORK_KINDS`;
+- splits the RO remaining hours per day (summed per project) in 0.5h steps with `allocateHours`.
+
+It never writes.
 
 Rules:
 - Every tool sets `title`, `description`, `annotations` (the `READ_ONLY`, `WRITE`, `DESTRUCTIVE` and `LOCAL_*` constants) and a `.describe()` on every input param. `test/mcp-smoke.test.mjs` enforces this and the exact tool list, so update both when adding a tool.

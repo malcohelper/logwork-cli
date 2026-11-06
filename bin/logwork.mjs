@@ -10,6 +10,7 @@ import { readPackageVersion } from '../lib/package-info.mjs';
 //   logwork mcp           -> MCP stdio server for IDEs and agent CLIs
 export const COMMANDS = [
   { name: 'query', usage: 'query [today|yesterday|this-week|last-week|this-month|last-month] [--json]', summary: 'Show booked vs logged hours with entry ids', load: () => import('../commands/query.mjs'), fn: 'run' },
+  { name: 'commits', usage: 'commits [period] [--repo path]... [--author email]', summary: 'Draft logwork lines from your git commits', load: () => import('../commands/commits.mjs'), fn: 'run' },
   { name: 'quick', usage: 'quick [-m "what you did"]', summary: 'Log one entry for today with guided prompts', load: () => import('../commands/quick.mjs'), fn: 'run' },
   { name: 'edit', usage: 'edit <id> [--hours h] [--task name|#id] [--desc text] [--type type]', summary: 'Change an existing RO entry (replaces it)', load: () => import('../commands/edit.mjs'), fn: 'runRoEditCommand' },
   { name: 'delete', usage: 'delete <id>', summary: 'Delete a submitted or approved RO entry', load: () => import('../commands/delete.mjs'), fn: 'runRoDeleteCommand' },
@@ -18,6 +19,7 @@ export const COMMANDS = [
   { name: 'login', usage: 'login [ro|jira] [--base-url url]', summary: 'Log in to Resource Optimiser (default) or Jira', load: () => import('../commands/auth.mjs'), fn: 'runLogin' },
   { name: 'logout', usage: 'logout [ro|jira]', summary: 'Remove the stored RO (default) or Jira session', load: () => import('../commands/auth.mjs'), fn: 'runLogout' },
   { name: 'status', usage: 'status', summary: 'Show RO and Jira login status', load: () => import('../commands/auth.mjs'), fn: 'runStatus' },
+  { name: 'skill', usage: 'skill [print|install] [--target claude|codex|all]', summary: 'Print or install the AI agent skill for logging from commits', load: () => import('../commands/skill.mjs'), fn: 'run' },
   { name: 'setup', usage: 'setup [--login|--no-login]', summary: 'Install the runtime and print MCP configs', load: () => import('../commands/setup.mjs'), fn: 'run' },
   { name: 'mcp', usage: 'mcp', summary: 'Run the MCP stdio server (used by IDE configs)', load: () => import('../lib/mcp-server.mjs'), fn: 'startMcpServer' },
   { name: 'reminder', usage: 'reminder enable|disable|status|test', summary: 'Manage the weekday logwork reminder', load: () => import('../commands/reminder.mjs'), fn: 'runReminderCli' },
@@ -75,6 +77,7 @@ Examples:
   logwork setup
   logwork login
   logwork query this-week
+  logwork commits yesterday --repo ~/code/app
   logwork quick -m "Fix login bug (SCB-12)"
   logwork edit 304032 --task "Bug Fix" --desc "Fix date picker timezone (SAP-42)"
 

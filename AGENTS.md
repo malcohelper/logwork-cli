@@ -5,7 +5,8 @@
 This is the `logwork-cli` npm package (repo `malcohelper/logwork-cli`): a Node.js 22+ ESM project for macOS/Windows with three surfaces over shared workflows. It provides a terminal UI, a CLI, and a local MCP server that log work to Resource Optimiser and Jira.
 
 - `bin/logwork.mjs` is the only executable entry point (npm bins `logwork` and `logwork-cli`). It dispatches `logwork <command>` in-process to `commands/*.mjs`. With no command it opens the terminal UI; `logwork mcp` starts the MCP server.
-- `commands/` contains one module per CLI command (`query`, `quick`, `edit`, `delete`, `reconcile`, `history`, `auth` for login/logout/status, `setup`, `reminder`, `update`, `doctor`, `release`, `tui`).
+- `skills/logwork/SKILL.md` is the agent procedure for logging from commits; it is served as the MCP prompt `log_from_commits` and installed by `logwork skill install`. Keep it tool-accurate when MCP tools change.
+- `commands/` contains one module per CLI command (`query`, `commits`, `skill`, `quick`, `edit`, `delete`, `reconcile`, `history`, `auth` for login/logout/status, `setup`, `reminder`, `update`, `doctor`, `release`, `tui`).
 - `lib/` contains reusable modules for API access, auth, project resolution, parsing, workflows, UI, OS integration, `config.mjs` (API paths, timeouts, defaults), `mcp-server.mjs`, and `legacy-migration.mjs` (one-time copy of state from the pre-rename `~/.logwork-helper`).
 - `test/` contains Node test runner suites named `*.test.mjs`.
 - `examples/mcp/` contains MCP client configuration templates.

@@ -67,12 +67,14 @@ Sessions are stored in macOS Keychain or Windows Credential Manager. The default
 ```text
 logwork                 Open the terminal UI
 logwork query [period]  Booked vs logged hours with entry ids (today, yesterday, this-week, last-week, this-month, last-month)
+logwork commits [period] Draft logwork lines from your git commits (--repo, --author)
 logwork quick [-m text] Log one entry for today with guided prompts
 logwork edit <id> ...   Change an existing RO entry (replaces it)
 logwork delete <id>     Delete a submitted or approved RO entry
 logwork reconcile       Compare RO and Jira hours by day (read-only)
 logwork history         Local apply history
 logwork login|logout|status [ro|jira]
+logwork skill install   Install the AI agent skill (Claude Code, Codex)
 logwork setup           Install the runtime and print MCP configs
 logwork mcp             Run the MCP stdio server (used by IDE configs)
 logwork reminder ...    Weekday logwork reminder
@@ -81,6 +83,47 @@ logwork doctor          Write a sanitized diagnostics report
 ```
 
 Add `--help` to any command for its options.
+
+## Log Work From Your Commits
+
+Most logwork is the work you committed. logwork turns your commits into draft lines, and the RO booking decides how many hours there are to fill.
+
+```bash
+logwork commits yesterday
+logwork commits this-week --repo ~/code/portal --repo ~/code/api
+```
+
+How the draft is built:
+
+- **Which commits:** your own (`git config user.email`, or `--author`) on every local and remote branch. Stashes and merge commits are skipped.
+- **Grouping:** per day, by repo + ticket key + kind of work.
+- **Worklog task:** chosen from the kind of work.
+
+  | Commit | Worklog task |
+  |---|---|
+  | `feat` | Feature Development |
+  | `fix`, hotfix | Bug Fix |
+  | `refactor`, `perf`, review | Code Review & Refactoring |
+  | `test` | Testing Activities |
+  | `ci`, `build`, release, deploy | Deployment & Release |
+  | `docs`, design | Requirements & Design |
+  | `chore` | Other Activities |
+
+  Conventional prefixes are used first, then keywords in the subject.
+- **Hours:** each day's RO remaining time (booked − logged, per project) is split across the groups in 0.5h steps, weighted by commits and lines changed. Days without a booking get 0h. Without RO access, a weekday counts as 8h.
+
+Nothing is written. Paste the draft into `/logwork`, or let your AI agent use it.
+
+For agents:
+- **MCP tool `draft_from_commits`** returns the same draft as `draftText`.
+- **MCP prompt `log_from_commits`** gives an agent the full procedure:
+  1. find gaps with `get_logwork`;
+  2. draft from commits;
+  3. check task names with `list_tasks`;
+  4. rewrite vague descriptions;
+  5. stay within booked hours;
+  6. get your approval, then `log_work`.
+- **Claude Code / Codex:** `logwork skill install` installs the same procedure as a skill, in `~/.claude/skills/logwork` and `~/.codex/skills/logwork`. For other agents, `logwork skill` prints it so you can paste it into your rules.
 
 ## Logwork Line Format
 
@@ -154,7 +197,7 @@ claude mcp add --transport stdio logwork -- node ~/.logwork-cli/bin/logwork.mjs 
 
 Restart or reload the IDE's MCP tools after saving.
 
-The server exposes 15 tools. It also sends `instructions` covering the approval rules, the line format and the recommended call order. Every write is **two calls to the same tool**:
+The server exposes 16 tools and one prompt (`log_from_commits`). It also sends `instructions` covering the approval rules, the line format and the recommended call order. Every write is **two calls to the same tool**:
 1. Call the tool without `confirm`. It returns a preview with a `batchId` or `previewId` and a summary.
 2. After the user approves, call the same tool again with only that id and `confirm: true`.
 

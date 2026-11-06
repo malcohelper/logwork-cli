@@ -73,7 +73,7 @@ If you used `logwork-helper` before, delete its old MCP entry. It points at `~/.
 
 ## Exposed Tools
 
-After editing the config, restart or reload the IDE. The server exposes 15 tools. Each one has a title, a description, a described input schema, and MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), so IDEs and agents can tell read-only tools from writes.
+After editing the config, restart or reload the IDE. The server exposes 16 tools and one prompt. Each one has a title, a description, a described input schema, and MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), so IDEs and agents can tell read-only tools from writes.
 
 The server also sends MCP `instructions` that explain the approval rules, the line format and the recommended call order. Most clients pass these to the model automatically.
 
@@ -89,6 +89,7 @@ Previews expire after 1 hour. They are also lost when the server restarts.
 | Group | Tool | Kind | Purpose |
 |---|---|---|---|
 | Read | `get_logwork` | read-only | Booked vs logged RO hours by day and project, with entries (`logworkId`, worklog task, description, status). |
+| Read | `draft_from_commits` | read-only | Your git commits (all branches, your author) for a period in the given `repos`, grouped per day into draft lines with a suggested worklog task and hours that fill the RO remaining booked time. Returns `draftText` for `log_work`. |
 | Read | `list_projects` | read-only | RO memberships (`projectMemberId`, `projectId`, `projectName`) and local mappings. |
 | Read | `list_tasks` | read-only | RO worklog task catalog for one `projectId`: id, name, type of work, and when to use each task. |
 | Read | `get_jira_issue` | read-only | Jira issue key, summary and status. |
@@ -172,7 +173,27 @@ Log 2 hours today for SCB-213 "maintenance mode UI" as Feature Development, with
 Set up the SCB ticket mapping to project 2621A-SIT-HTML BUILDER-PRJ.
 ```
 
+**Prompt `log_from_commits`** (arguments: `period`, `repos`) returns the full procedure for logging from commits. It is the same text as the agent skill that `logwork skill install` installs for Claude Code and Codex.
+
 ## Common MCP Workflows
+
+### Log Work From Your Commits
+
+Ask your assistant (or pick the `log_from_commits` prompt in clients that list MCP prompts):
+
+```text
+Log my work for yesterday from my commits in this workspace.
+```
+
+Expected flow:
+
+1. `get_logwork` shows which days and projects still have booked hours to fill.
+2. `draft_from_commits` (with `repos` set to the workspace folders) groups your commits into draft lines with hours.
+3. `list_tasks` confirms the worklog task names for each project.
+4. The assistant rewrites vague descriptions, shows you the block and waits for approval.
+5. `log_work(text)` previews the entries, then `log_work(batchId, confirm: true)` applies them.
+
+
 
 ### Query Logwork
 

@@ -4,6 +4,22 @@ Each version needs a `## [x.y.z]` section here before its version bump is
 pushed to `main`. The release workflow uses that section as the GitHub Release
 description.
 
+## [1.1.0] - 2026-11-07
+
+### Summary
+- **Log work from your commits.** `logwork commits [period] [--repo ...]` and the MCP tool `draft_from_commits` read your own commits (all branches, your git author) and draft `+<hours> <worklog task> | <description>` lines:
+  - commits are grouped per day by repo, ticket and kind of work;
+  - the kind of work picks the worklog task (feat -> Feature Development, fix -> Bug Fix, refactor/review -> Code Review & Refactoring, test -> Testing Activities, ci/release -> Deployment & Release, docs -> Requirements & Design);
+  - each day's RO remaining booked hours are split across the groups in 0.5h steps.
+- **Agent skill.** New MCP prompt `log_from_commits` and `logwork skill install` (Claude Code and Codex). Both carry the procedure agents follow for accurate logwork:
+  1. find the gaps;
+  2. draft from commits;
+  3. check task names;
+  4. rewrite vague descriptions;
+  5. stay within booked hours;
+  6. get the user's approval before `log_work`.
+- MCP server instructions now point agents at the commit-based flow and forbid inventing work.
+
 ## [1.0.0] - 2026-11-07
 
 ### Summary

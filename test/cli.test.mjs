@@ -88,7 +88,7 @@ test('logwork starts through a symlink like an npm global bin and opens the term
 test('logwork --help lists every command and short examples', () => {
   const result = runCli(['--help']);
   assert.equal(result.status, 0);
-  for (const name of ['query', 'quick', 'edit', 'delete', 'reconcile', 'history', 'login', 'logout', 'status', 'setup', 'mcp', 'reminder', 'update', 'doctor', 'release']) {
+  for (const name of ['query', 'commits', 'skill', 'quick', 'edit', 'delete', 'reconcile', 'history', 'login', 'logout', 'status', 'setup', 'mcp', 'reminder', 'update', 'doctor', 'release']) {
     assert.match(result.stdout, new RegExp(`\\n  ${name}\\s`), name);
   }
   assert.match(result.stdout, /logwork edit 304032 --task "Bug Fix" --desc/);
@@ -120,6 +120,8 @@ const HELP_CASES = [
   [['reconcile', '--help'], [/reconcile \[today\|yesterday\|this-week/]],
   [['query', '--help'], [/logwork query \[today\|yesterday/, /logwork edit/]],
   [['quick', '--help'], [/logwork quick -m/, /description/]],
+  [['commits', '--help'], [/logwork commits \[today/, /--repo <path>/, /fix -> Bug Fix/]],
+  [['skill', '--help'], [/logwork skill install/, /log_from_commits/]],
   [['edit', '--help'], [/logwork edit <id>/, /--task <task>/, /--desc <text>/, /replaces the entry/]],
   [['delete', '--help'], [/logwork delete/]]
 ];

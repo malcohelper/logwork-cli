@@ -44,6 +44,7 @@ test('MCP server lists logwork tools over stdio', async () => {
     const names = result.tools.map((tool) => tool.name).sort();
     assert.deepEqual(names, [
       'delete_entry',
+      'draft_from_commits',
       'edit_entry',
       'get_history',
       'get_jira_issue',
@@ -65,7 +66,7 @@ test('MCP server lists logwork tools over stdio', async () => {
     const instructions = client.getInstructions();
     assert.match(instructions, /\+<hours> <worklog task> \| <description>/);
     assert.match(instructions, /confirm: true/);
-    assert.match(instructions, /get_logwork \(what is booked\/logged\) -> list_projects -> list_tasks/);
+    assert.match(instructions, /get_logwork \(what is booked\/logged\) -> draft_from_commits/);
     assert.doesNotMatch(instructions, /preview_|apply_|start_auth_login/);
 
     for (const tool of result.tools) {
@@ -79,7 +80,7 @@ test('MCP server lists logwork tools over stdio', async () => {
       }
     }
 
-    for (const name of ['get_logwork', 'list_projects', 'list_tasks', 'get_jira_issue', 'reconcile', 'get_history']) {
+    for (const name of ['get_logwork', 'draft_from_commits', 'list_projects', 'list_tasks', 'get_jira_issue', 'reconcile', 'get_history']) {
       assert.equal(tools[name].annotations.readOnlyHint, true, `${name} is read-only`);
     }
     for (const name of ['edit_entry', 'delete_entry']) {
@@ -115,6 +116,16 @@ test('MCP server lists logwork tools over stdio', async () => {
     assert.deepEqual(tools.reminder.inputSchema.properties.action.enum, ['status', 'enable', 'disable', 'test']);
     assert.deepEqual(params('update'), ['action', 'confirm', 'force', 'version']);
     assert.deepEqual(params('get_jira_issue'), ['issueKey']);
+    assert.deepEqual(params('draft_from_commits'), ['author', 'period', 'repos', 'useBookings']);
+    assert.match(tools.draft_from_commits.description, /draftText/);
+    assert.match(instructions, /draft_from_commits/);
+    assert.match(instructions, /never invent work/);
+
+    const prompts = await client.listPrompts();
+    assert.deepEqual(prompts.prompts.map((prompt) => prompt.name), ['log_from_commits']);
+    const prompt = await client.getPrompt({ name: 'log_from_commits', arguments: { period: 'yesterday' } });
+    assert.match(prompt.messages[0].content.text, /draft_from_commits/);
+    assert.match(prompt.messages[0].content.text, /Period: yesterday/);
 
     const call = (name, args) => client.callTool({ name, arguments: args });
 
