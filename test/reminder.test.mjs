@@ -128,7 +128,7 @@ test('scheduler installation tolerates missing old macOS job and requires bootst
       return { code: args[0] === 'bootout' ? 113 : 0, stdout: '', stderr: '' };
     }
   });
-  assert.match(writtenPath, /Library\/LaunchAgents/);
+  assert.match(writtenPath, /Library[\\/]LaunchAgents/);
   assert.equal(calls[0].args[0], 'bootout');
   assert.equal(calls[1].args[0], 'bootstrap');
   assert.equal(result.installed, true);

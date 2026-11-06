@@ -485,7 +485,7 @@ test('setup-user checklist omits auth retry after successful login', () => {
   assert.match(output, /GitHub Copilot \/ VS Code mcp\.json:/);
   assert.match(output, /target-logwork-cli/);
   assert.match(output, /"logwork": \{/);
-  assert.match(output, /bin\/logwork\.mjs",\n\s+"mcp"/);
+  assert.match(output, /bin(\/|\\\\)logwork\.mjs",\n\s+"mcp"/);
 });
 
 test('setup checklist uses the Windows credential store on Windows', () => {
