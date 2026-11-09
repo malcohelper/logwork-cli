@@ -77,7 +77,7 @@ Sessions are stored in macOS Keychain or Windows Credential Manager. The default
 ```text
 logwork                 Open the terminal UI
 logwork query [period]  Booked vs logged hours with entry ids (today, yesterday, this-week, last-week, this-month, last-month)
-logwork commits [period] Draft logwork lines from your git commits (--repo, --author)
+logwork commits [period] Draft logwork lines from your git commits (--repo, --author, --no-prompt)
 logwork quick [-m text] Log one entry for today with guided prompts
 logwork edit <id> ...   Change an existing RO entry (replaces it)
 logwork delete <id>     Delete a submitted or approved RO entry
@@ -120,13 +120,20 @@ How the draft is built:
   | `chore` | Other Activities |
 
   Conventional prefixes are used first, then keywords in the subject.
-- **Project:** a project mapping whose `repos` list holds the repo wins (`/map --repo . 5234` in the terminal UI, or the MCP tool `map_project` with `repos`). Otherwise ticket and keyword mappings and the day's booked projects pick it, the same way `log_work` does. Repos with no project are listed so you can map them.
+- **Project:** a project mapping whose `repos` list holds the repo wins. Otherwise ticket and keyword mappings and the day's booked projects pick it, the same way `log_work` does.
+- **Repos with no project:** you are asked once, in place. In an interactive terminal, `logwork commits` shows `Which RO project does <repo> belong to?` with your member projects. The likely project is preselected, with the reason as a hint:
+  - a ticket key from the repo's commits that you logged to that project in the last 30 days;
+  - the repo folder or git remote name matching the project name, its acronym in parentheses (`fcs-web` → `GKE Fair Chem System (FCS)`) or its initials;
+  - the only project booked on the repo's commit days.
+
+  Your choice is saved as a repo mapping (user scope) and the draft is redone. Choose `Skip for now` to be asked again next time. `--no-prompt`, `--json` or a non-interactive terminal never ask; the summary then names the likely project per repo.
 - **Hours:** each project's RO remaining time (booked − logged) is split across that project's groups in 0.5h steps, weighted by commits and lines changed, and never exceeds it. A project with no room left gets 0h. Groups without a project share the room of booked projects that no group claimed. Days without a booking get 0h. Without RO access, a weekday counts as 8h, split across all groups.
 
-Nothing is written. Paste the draft into `/logwork`, or let your AI agent use it.
+Nothing is written to RO or Jira. Paste the draft into `/logwork`, or let your AI agent use it.
 
 For agents:
 - **MCP tool `draft_from_commits`** returns the same draft as `draftText`, plus `projectOverrides` (preview entry id → `projectMemberId`) for every line with a project. The agent passes both to `log_work` unchanged. In the terminal UI, pasted lines are resolved again from mappings and bookings.
+- For `unmappedRepos` it also returns `repoSuggestions` (ranked projects with reasons per repo) and `projectCandidates`. The agent asks you one short question per repo by project name ("Is fcs-web part of GKE Fair Chem System (FCS)?"), then saves the answer with `map_project` and drafts again. You never type an id.
 - **MCP prompt `log_from_commits`** gives an agent the full procedure:
   1. find gaps with `get_logwork`;
   2. draft from commits;
@@ -292,7 +299,7 @@ In the terminal UI, `/logwork` opens a target picker. `/logwork ro` writes Resou
 - `/query this-week`
 - `/reconcile`
 - `/projects`
-- `/map SCB 5234` (ticket prefix) or `/map --repo . 5234` (this git repo, for commit drafts)
+- `/map --repo` (this git repo, for commit drafts: opens a project picker with the likely project first), `/map --repo ~/code/fcs GKE Fair` (by name), or `/map SCB 5234` (ticket prefix)
 - `/history`
 - `/diagnostics`
 

@@ -95,7 +95,7 @@ Previews expire after 1 hour. They are also lost when the server restarts.
 | Group | Tool | Kind | Purpose |
 |---|---|---|---|
 | Read | `get_logwork` | read-only | Booked vs logged RO hours by day and project, with entries (`logworkId`, worklog task, description, status). |
-| Read | `draft_from_commits` | read-only | Your git commits (all branches, your author) for a period in the given `repos`, grouped per day into draft lines with a suggested worklog task, an RO project (repo mapping, else ticket/keyword mappings and bookings) and hours that fill each project's remaining booked time. Returns `draftText` and `projectOverrides` for `log_work`, and `unmappedRepos`. |
+| Read | `draft_from_commits` | read-only | Your git commits (all branches, your author) for a period in the given `repos`, grouped per day into draft lines with a suggested worklog task, an RO project (repo mapping, else ticket/keyword mappings and bookings) and hours that fill each project's remaining booked time. Returns `draftText` and `projectOverrides` for `log_work`, `unmappedRepos`, and `repoSuggestions` (likely project per unmapped repo, with reasons) plus `projectCandidates`. |
 | Read | `list_projects` | read-only | RO memberships (`projectMemberId`, `projectId`, `projectName`) and local mappings. |
 | Read | `list_tasks` | read-only | RO worklog task catalog for one `projectId`: id, name, type of work, and when to use each task. |
 | Read | `get_jira_issue` | read-only | Jira issue key, summary and status. |
@@ -198,7 +198,10 @@ Expected flow:
    - Each line gets a project. A `map_project` mapping whose `repos` holds the repo comes first; then ticket/keyword mappings and that day's booked projects.
    - Each project's remaining hours are split across its own lines and never exceeded. Lines without a project share the room of booked projects that no line claimed.
    - It returns `draftText`, plus `projectOverrides` (preview entry id → `projectMemberId`) for each line with a project.
-   - It also returns `unmappedRepos`. For those, the assistant asks which project the repo belongs to and offers `map_project` with `repos`.
+   - It also returns `unmappedRepos` (repo paths whose lines got no project), `repoSuggestions` and `projectCandidates`:
+     - `repoSuggestions` maps each unmapped repo to up to 5 projects, best first: `{ projectName, projectMemberId, projectId, score, reasons }`. The evidence is a ticket from the repo's commits that you logged to the project in the last 30 days, the repo folder or git remote name matching the project name (its acronym in parentheses or its initials), and the only project booked on the repo's commit days. `reasons` are readable, for example `ticket FCS-12 was logged to this project on 2026-11-03` or `repo name matches FCS`.
+     - `projectCandidates` lists every member project (booked ones first).
+     - The assistant asks one short question per repo by project name ("Is fcs-web part of GKE Fair Chem System (FCS)?"). On a yes it calls `map_project` with `projectName` (or the suggestion's `projectMemberId`), `repos` and `confirm: true`, then runs `draft_from_commits` again.
 3. `list_tasks` confirms the worklog task names for each project.
 4. The assistant rewrites vague descriptions, shows you the block and waits for approval.
 5. `log_work(text, projectOverrides)` previews the entries, then `log_work(batchId, confirm: true)` applies them.
@@ -353,11 +356,11 @@ The two applies are intentionally not atomic. `log_work` never writes Jira, and 
 You do not need to create the mapping file by hand. When a preview cannot resolve a ticket like `SCB-213`, the assistant calls `list_projects`. After you approve, it calls `map_project` with `tickets`, an optional `keywords`, and `confirm: true`.
 
 For commit drafts, a mapping can also list git repos.
-- When `draft_from_commits` reports `unmappedRepos`, the assistant can call `map_project` with `repos` (absolute paths) and `confirm: true`.
+- When `draft_from_commits` reports `unmappedRepos`, the assistant confirms the top `repoSuggestions` entry with you by name, then calls `map_project` with `projectName`, `repos` (absolute paths) and `confirm: true`.
 - At least one ticket prefix or repo is required.
 - A subfolder is stored as the root of its repo.
 - Paths are compared without trailing separators, and case-insensitively on Windows.
-- In the terminal UI, `/map --repo [path] <projectMemberId>` does the same. The path defaults to the current folder.
+- In a terminal, `logwork commits` asks for each unmapped repo with a picker (likely project first). In the terminal UI, `/map --repo [path]` opens the same picker and `/map --repo [path] <project name>` maps by name. The path defaults to the current folder.
 
 Mappings are stored in one of two places:
 - **User scope (default):** `~/.logwork-cli/.logwork.json`.

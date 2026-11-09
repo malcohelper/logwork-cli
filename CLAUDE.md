@@ -102,7 +102,9 @@ The server exposes 16 tools and one prompt:
 - gives each project's groups that project's remaining hours (booked minus logged) in 0.5h steps with `allocateHours`; unresolved groups share the room of booked projects no group claimed. Without RO it splits a standard day across all groups;
 - returns `projectOverrides` keyed by the log_work entry ids. The parser numbers `<date>-<NN>` through the whole text, not per date.
 
-It never writes.
+- for each unmapped repo, ranks project suggestions with `lib/repo-project-suggestions.mjs` (pure: ticket history from the last 30 days of RO entries, repo folder / git remote name vs project name, acronym and initials, single booked project) and returns `repoSuggestions` (`{ [repoPath]: [{ projectName, projectMemberId, projectId, score, reasons }] }`, at most 5) and `projectCandidates` (bookings, then memberships). It reads the history and memberships once per draft, only when RO bookings were read; non-auth errors drop that evidence, auth errors still raise. `unmappedRepos` stays an array of paths.
+
+It never writes to RO or Jira. `logwork commits` (TTY, no `--json` / `--no-prompt`) then asks once per unmapped repo with `lib/ui.mjs#chooseRepoProject`, saves the choice with `upsertProjectMapping({ repos, projectMemberId, scope: 'user', confirm: true })`, and drafts again. The terminal UI `/map --repo [path] [name|id]` uses `suggestProjectsForRepo` and `prompts.select` (Ink `SelectPrompt`; `pendingSelect` in `manual-ink-app.mjs`), and resolves names with `resolveProjectSelection`.
 
 Rules:
 - Every tool sets `title`, `description`, `annotations` (the `READ_ONLY`, `WRITE`, `DESTRUCTIVE` and `LOCAL_*` constants) and a `.describe()` on every input param. `test/mcp-smoke.test.mjs` enforces this and the exact tool list, so update both when adding a tool.

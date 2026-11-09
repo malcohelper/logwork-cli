@@ -41,16 +41,29 @@ The assistant uses `list_projects` and `list_tasks`, writes `+2 <task> | <descri
 
 ## Log From Commits Into The Right Projects
 
-Tell logwork which RO project each repo belongs to, once:
+Each repo needs its RO project once. Just run the draft:
 
-```text
-logwork
-/map --repo ~/code/portal 5234
+```bash
+logwork commits yesterday
 ```
 
-or ask your assistant: `Map the repo /Users/me/code/portal to my Portal project` (it calls `list_projects`, then `map_project` with `repos` after you approve).
+For a repo with no project yet, it asks in place:
 
-Then `logwork commits yesterday` (or the assistant's `draft_from_commits`) puts that repo's commits on project 5234. The hours come from what is still free on that project: booked minus logged. If the project is already full, its lines get 0h and the summary says so. Repos without a mapping fall back to ticket/keyword mappings and that day's bookings, and are listed at the end so you can map them.
+```text
+Which RO project does portal-web belong to?
+› Customer Portal · ticket CP-12 was logged to this project on 2026-11-03
+  GKE Fair Chem System (FCS)
+  Managed Hosting
+  Skip for now
+```
+
+The likely project is preselected. Press Enter to save it as a repo mapping; the draft is then redone with that repo's lines on the project. `Skip for now` asks again next time; `--no-prompt` never asks.
+
+Other ways to map a repo, all without ids:
+- Terminal UI: `/map --repo` (this folder) or `/map --repo ~/code/portal` opens the same picker; `/map --repo ~/code/portal Customer Portal` maps by name (a unique part of the name is enough).
+- Assistant: `draft_from_commits` returns `repoSuggestions`, so the assistant asks "Is portal-web part of Customer Portal?" and calls `map_project` with `projectName` and `repos` after you say yes.
+
+Mapped repos put their commits on that project. The hours come from what is still free on that project: booked minus logged. If the project is already full, its lines get 0h and the summary says so. Repos without a mapping fall back to ticket/keyword mappings and that day's bookings.
 
 The assistant passes the draft's `projectOverrides` to `log_work` with the same text, so each line is logged to the project the draft chose.
 

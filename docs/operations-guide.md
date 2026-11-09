@@ -348,6 +348,14 @@ RO project mapping can use:
 - Task keywords, for example `maintenance mode`.
 - Explicit project selection during preview.
 - Jira project key/name metadata in the terminal Both flow to rank RO memberships.
+- Git repo roots (`repos`), for commit drafts.
+
+A repo with no mapping is mapped once, in place, without ids:
+- `logwork commits` in an interactive terminal asks `Which RO project does <repo> belong to?` with the likely project preselected, saves the choice and redoes the draft (`--no-prompt` turns this off).
+- In the terminal UI, `/map --repo [path]` opens the same picker; `/map --repo [path] <project name>` maps by name (case-insensitive, then a unique part of the name; an ambiguous name opens the picker).
+- MCP: `draft_from_commits` returns `repoSuggestions` per unmapped repo; the assistant confirms the top one by name and calls `map_project` with `projectName` and `repos`.
+
+The likely project comes from ticket keys in the repo's commits that you logged to a project in the last 30 days, then the repo folder or git remote name against the project name (acronym in parentheses, initials, shared words), then the only project booked on the repo's commit days.
 
 Example MCP sequence:
 
