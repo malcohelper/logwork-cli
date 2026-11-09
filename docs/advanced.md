@@ -78,9 +78,9 @@ To install and start auth immediately:
 logwork setup --login
 ```
 
-Use `--no-login` when installing in scripts or CI.
+Use `--no-login` when installing in scripts or CI. Add `--no-mcp-install` to leave MCP client configs alone, or `--yes` to update every detected client without asking. Without a terminal and without `--yes`, setup only prints what `logwork mcp install` would change.
 
-`logwork setup` copies the package into `~/.logwork-cli`, runs `npm ci --omit=dev` there, removes a globally installed `logwork-helper` package (its `logwork` bin would block linking), runs `npm link`, re-registers an enabled reminder, and prints MCP configs.
+`logwork setup` copies the package into `~/.logwork-cli`, runs `npm ci --omit=dev` there, removes a globally installed `logwork-helper` package (its `logwork` bin would block linking), runs `npm link`, writes `runtime.json` and the launcher (`bin/logwork-launch`, macOS), re-registers an enabled reminder, and adds or updates the `logwork` entry in the detected MCP clients ([details](mcp-setup.md#automatic-setup)). It prints the manual snippets only for clients it could not update, or when it found none.
 
 ## Update
 
@@ -91,7 +91,7 @@ logwork update install           # interactive confirmation
 logwork update install --version 0.3.1 --yes
 ```
 
-The installer accepts only the version currently published under npm's `latest` tag. It runs `npm exec --package=logwork-cli@<version> -- logwork setup --no-login` with a fixed argument list. Then it verifies the copied `package.json` version in `~/.logwork-cli`.
+The installer accepts only the version currently published under npm's `latest` tag. It runs `npm exec --package=logwork-cli@<version> -- logwork setup --no-login` with a fixed argument list. Then it verifies the copied `package.json` version in `~/.logwork-cli`. That setup runs without a terminal, so it does not edit MCP configs; they keep working because they point at the launcher (macOS) or a stable `node.exe` (Windows). `logwork mcp status` shows whether anything needs `logwork mcp install`.
 
 Project mappings, drafts, apply history, update cache, and OS credential-store records are preserved.
 
@@ -272,8 +272,8 @@ Inside `logwork`, use `/history`, `/history ro`, `/history jira`, or `/history b
 
 ## Troubleshooting
 
-- **IDE does not show tools:** restart or reload the MCP client. Check that the config runs `node ~/.logwork-cli/bin/logwork.mjs mcp` (on Windows, `%USERPROFILE%\.logwork-cli\bin\logwork.mjs`) and that the server name is `logwork`.
-- **Tools show old names such as `preview_logwork_batch`:** the IDE is still connected to the old `logwork-helper` entry. Replace that entry with the config printed by `logwork setup`; the [tool name table](mcp-setup.md#tool-name-changes-from-logwork-helper) lists the renames.
+- **IDE does not show tools:** run `logwork mcp status`. If the client's entry is missing or stale, run `logwork mcp install`, then restart or reload the MCP client. The entry should run `~/.logwork-cli/bin/logwork-launch mcp` (on Windows, `node.exe %USERPROFILE%\.logwork-cli\bin\logwork.mjs mcp`) under the server name `logwork`. `logwork doctor` also checks that the launcher finds a usable Node.
+- **Tools show old names such as `preview_logwork_batch`:** the IDE is still connected to the old `logwork-helper` entry. `logwork mcp install` removes it; the [tool name table](mcp-setup.md#tool-name-changes-from-logwork-helper) lists the renames.
 - **`logwork: command not found` after `logwork setup`:** open a new terminal first. If it still fails, run `npm install -g logwork-cli`, or make sure your npm global bin directory is on `PATH`.
 - **`npm link` fails with `EEXIST` on `logwork`:** an old global `logwork-helper` package still owns the bin. Run `npm rm -g logwork-helper`, then `logwork setup` again.
 - **Not authenticated to Resource Optimiser:** run `logwork login`, or ask the assistant to call `login`. Enter secrets only in the terminal.
