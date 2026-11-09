@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { withEnv } from './helpers/env.mjs';
 import {
   addJiraIssueWorklog,
   getJiraIssueWorklogs,
   getJiraMyself,
+  isJiraDryRunResult,
   jiraApiFetch,
   searchJiraIssues
 } from '../lib/jira-api.mjs';
@@ -170,6 +172,112 @@ test('searchJiraIssues encodes JQL and paginates reminder issue matches', async 
   assert.equal(new URL(urls[0]).searchParams.get('jql'), 'worklogAuthor = currentUser() AND worklogDate = "2026-07-15"');
   assert.deepEqual(issues.map((issue) => issue.key), ['SCB-213', 'SCB-214']);
 });
+
+test('addJiraIssueWorklog returns the request without calling Jira in dry run', async () => {
+  let fetchCalls = 0;
+  const worklog = {
+    started: '2026-06-01T09:00:00.000+0700',
+    timeSpentSeconds: 7200,
+    comment: 'Task\n\n#lh:abcdef12'
+  };
+  const result = await withEnv({ LOGWORK_DRY_RUN: '1' }, () => addJiraIssueWorklog('pat-secret', 'SCB-213', worklog, {
+    baseUrl: 'https://jira.example.com',
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      throw new Error('dry run must not call Jira');
+    }
+  }));
+
+  assert.equal(fetchCalls, 0);
+  assert.equal(isJiraDryRunResult(result), true);
+  assert.deepEqual(result, {
+    dryRun: true,
+    method: 'POST',
+    path: '/rest/api/2/issue/SCB-213/worklog?adjustEstimate=leave',
+    body: worklog
+  });
+  assertNoCredentials(result);
+});
+
+test('jiraApiFetch stubs every non-GET method in dry run but still reads', async () => {
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    calls.push(options.method);
+    return jsonResponse({ id: '10001' });
+  };
+
+  await withEnv({ LOGWORK_DRY_RUN: '1' }, async () => {
+    const put = await jiraApiFetch('pat-secret', '/rest/api/2/issue/SCB-213/worklog/10001', {
+      baseUrl: 'https://jira.example.com',
+      fetchImpl,
+      method: 'PUT',
+      body: { timeSpentSeconds: 3600 }
+    });
+    assert.deepEqual(put, {
+      dryRun: true,
+      method: 'PUT',
+      path: '/rest/api/2/issue/SCB-213/worklog/10001',
+      body: { timeSpentSeconds: 3600 }
+    });
+
+    const del = await jiraApiFetch('pat-secret', '/rest/api/2/issue/SCB-213/worklog/10001', {
+      baseUrl: 'https://jira.example.com',
+      fetchImpl,
+      method: 'DELETE'
+    });
+    assert.deepEqual(del, {
+      dryRun: true,
+      method: 'DELETE',
+      path: '/rest/api/2/issue/SCB-213/worklog/10001'
+    });
+
+    const property = await jiraApiFetch('pat-secret', '/rest/api/2/issue/SCB-213/properties/lh', {
+      baseUrl: 'https://jira.example.com',
+      fetchImpl,
+      method: 'put',
+      body: { value: 1 }
+    });
+    assert.equal(property.method, 'PUT');
+    for (const result of [put, del, property]) {
+      assertNoCredentials(result);
+    }
+    assert.deepEqual(calls, []);
+
+    const read = await jiraApiFetch('pat-secret', '/rest/api/2/issue/SCB-213', {
+      baseUrl: 'https://jira.example.com',
+      fetchImpl
+    });
+    assert.deepEqual(read, { id: '10001' });
+    assert.deepEqual(calls, ['GET']);
+  });
+});
+
+test('jiraApiFetch writes normally when LOGWORK_DRY_RUN is not 1', async () => {
+  let fetchCalls = 0;
+  const result = await withEnv({ LOGWORK_DRY_RUN: '0' }, () => addJiraIssueWorklog('pat-secret', 'SCB-213', {
+    started: '2026-06-01T09:00:00.000+0700',
+    timeSpentSeconds: 3600,
+    comment: 'Task'
+  }, {
+    baseUrl: 'https://jira.example.com',
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return jsonResponse({ id: '10002', timeSpentSeconds: 3600 }, { status: 201, statusText: 'Created' });
+    }
+  }));
+
+  assert.equal(fetchCalls, 1);
+  assert.equal(result.id, '10002');
+  assert.equal(isJiraDryRunResult(result), false);
+});
+
+function assertNoCredentials(value) {
+  const text = JSON.stringify(value);
+  assert.doesNotMatch(text, /pat-secret/);
+  assert.doesNotMatch(text, /authorization/i);
+  assert.doesNotMatch(text, /bearer/i);
+  assert.equal('headers' in value, false);
+}
 
 function jsonResponse(value, { status = 200, statusText = 'OK' } = {}) {
   return new Response(JSON.stringify(value), {

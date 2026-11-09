@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { withEnv } from './helpers/env.mjs';
 import {
+  applyCachedJiraWork,
   assertNoFinalProjectOverrides,
   consumeApprovedBatch,
   consumeApprovedJiraBatch,
@@ -464,6 +466,43 @@ function createApprovedPreview() {
     summary: 'Logwork preview:\n- 2026-06-01: +2h Course Builder - original task'
   };
 }
+
+test('MCP log_jira_work apply in dry run states the dry run and sends no worklog', async () => {
+  const cache = new Map();
+  const now = Date.now();
+  const preview = createApprovedJiraPreview();
+  setCachedJiraPreview(cache, preview, now);
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    throw new Error('dry run must not call Jira');
+  };
+
+  try {
+    const response = await withEnv({ LOGWORK_DRY_RUN: '1' }, () => applyCachedJiraWork({
+      cache,
+      batchId: preview.batchId,
+      confirm: true,
+      now,
+      applyOptions: {
+        getSession: async () => ({ baseUrl: 'https://jira.example.com', token: 'pat-secret' }),
+        fetchWorklogs: async () => [],
+        recordLedger: null
+      }
+    }));
+
+    assert.equal(fetchCalls, 0);
+    assert.match(response.content[0].text, /^DRY RUN \(LOGWORK_DRY_RUN=1\)/);
+    assert.equal(response.structuredContent.status, 'dry_run');
+    assert.equal(response.structuredContent.dryRun, true);
+    assert.equal(response.structuredContent.results[0].request.method, 'POST');
+    assert.doesNotMatch(response.content[0].text, /pat-secret|authorization|bearer/i);
+    assert.equal(getCachedJiraPreview(cache, preview.batchId, now), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 function createApprovedJiraPreview() {
   return {

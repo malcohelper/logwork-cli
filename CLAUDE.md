@@ -35,7 +35,7 @@ npm ci
 npm test                                   # node --test, all suites in test/*.test.mjs
 node --test test/batch-workflow.test.mjs   # single suite
 npm run dry-run                            # terminal UI with LOGWORK_DRY_RUN=1
-LOGWORK_DRY_RUN=1 node bin/logwork.mjs mcp # MCP server without RO writes
+LOGWORK_DRY_RUN=1 node bin/logwork.mjs mcp # MCP server without RO or Jira writes
 npm run release:check                      # tests + audit + pack + diff check
 ```
 
@@ -45,7 +45,7 @@ User-facing CLI:
 - `logwork login|logout|status [ro|jira]`
 - `logwork setup`, `logwork mcp`, `logwork reminder`, `logwork update`, `logwork doctor`, `logwork release`
 
-`LOGWORK_DRY_RUN=1` makes the RO write functions in `lib/api.mjs` return the request body instead of calling the API. Reads still hit the API.
+`LOGWORK_DRY_RUN=1` (checked with `isDryRun()` from `lib/config.mjs`) makes the RO write functions in `lib/api.mjs` and every non-GET `jiraApiFetch` call in `lib/jira-api.mjs` return `{ dryRun: true, method, path, body }` instead of calling the API, with no token or headers. Reads still hit the API. The Jira apply then reports `status: 'dry_run'` and records `dry_run` entries in the apply ledger.
 
 `LOGWORK_HOME` relocates local state; `LOGWORK_HELPER_HOME` is still honored. Tests set one of them to a temp dir, which also disables the legacy migration.
 

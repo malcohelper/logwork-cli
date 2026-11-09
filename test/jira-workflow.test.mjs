@@ -1,5 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { loadApplyLedger, recordApplyResult } from '../lib/apply-ledger.mjs';
+import { withEnv } from './helpers/env.mjs';
 import {
   applyJiraWorklogBatch,
   buildJiraWorklogPayload,
@@ -226,6 +231,56 @@ test('Jira apply requires explicit confirm true', async () => {
     batch: readyBatch(),
     confirm: false
   }), /confirm: true/);
+});
+
+test('Jira apply in dry run sends no worklog, reports dry_run and keeps it out of submitted history', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'logwork-jira-dry-run-'));
+  const originalFetch = globalThis.fetch;
+  let writeCalls = 0;
+  let worklogReads = 0;
+  globalThis.fetch = async () => {
+    writeCalls += 1;
+    throw new Error('dry run must not call Jira');
+  };
+
+  try {
+    const result = await withEnv({ LOGWORK_DRY_RUN: '1', LOGWORK_HOME: home }, () => applyJiraWorklogBatch({
+      batch: readyBatch(),
+      confirm: true,
+      getSession: async () => fakeSession(),
+      fetchWorklogs: async () => {
+        worklogReads += 1;
+        return [];
+      },
+      recordLedger: (input) => recordApplyResult(input)
+    }));
+
+    assert.equal(writeCalls, 0);
+    assert.equal(worklogReads, 2, 'the duplicate check still reads Jira');
+    assert.equal(result.status, 'dry_run');
+    assert.equal(result.dryRun, true);
+    assert.deepEqual(result.results.map((entry) => entry.status), ['dry_run', 'dry_run']);
+    assert.ok(result.results.every((entry) => entry.dryRun === true && entry.worklogId === undefined));
+    assert.deepEqual(result.results[0].request, {
+      method: 'POST',
+      path: '/rest/api/2/issue/SCB-213/worklog?adjustEstimate=leave',
+      body: buildJiraWorklogPayload(readyBatch().entries[0])
+    });
+    assert.match(result.summary, /^DRY RUN \(LOGWORK_DRY_RUN=1\): .*nothing was written to Jira/);
+    assert.match(result.summary, /2 requests, submitted 0, failed 0/);
+    assert.match(result.summary, /SCB-213 \+2h -> dry_run/);
+    assert.doesNotMatch(JSON.stringify(result), /pat-secret|authorization|bearer/i);
+
+    assert.equal(result.ledger.recorded, true);
+    const [record] = await withEnv({ LOGWORK_HOME: home }, () => loadApplyLedger());
+    assert.equal(record.target, 'jira');
+    assert.equal(record.status, 'dry_run');
+    assert.equal(record.summary.submittedCount, 0);
+    assert.deepEqual(record.entries.map((entry) => [entry.status, entry.dryRun]), [['dry_run', true], ['dry_run', true]]);
+    assert.doesNotMatch(JSON.stringify(record), /pat-secret|authorization|bearer/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 function readyBatch() {
