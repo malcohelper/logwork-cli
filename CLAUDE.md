@@ -47,6 +47,7 @@ node --import ./test/helpers/setup.mjs --test test/batch-workflow.test.mjs   # s
 npm run dry-run                            # terminal UI with LOGWORK_DRY_RUN=1
 LOGWORK_DRY_RUN=1 node bin/logwork.mjs mcp # MCP server without RO or Jira writes
 npm run lint                               # ESLint 9 flat config (eslint.config.mjs)
+npm run test:coverage                      # npm test with built-in coverage and line/branch/function thresholds (CI, macOS)
 npm run release:check                      # lint + tests + audit + pack + diff check
 ```
 

@@ -583,6 +583,7 @@ Run the cross-platform suite:
 ```bash
 npm run lint
 npm test
+npm run test:coverage   # same suite with coverage thresholds; CI runs it on macOS
 git diff --check
 npm pack --dry-run
 ```
