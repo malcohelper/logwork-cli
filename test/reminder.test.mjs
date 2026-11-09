@@ -124,6 +124,7 @@ test('scheduler installation tolerates missing old macOS job and requires bootst
     userHome: '/Users/test',
     uid: 501,
     accessRunner: async () => {},
+    writeLauncherFn: async () => {},
     writeFile: async (path) => { writtenPath = path; },
     run: async (command, args) => {
       calls.push({ command, args });

@@ -534,7 +534,7 @@ test('manual MCP setup formats copy-ready client configs', async () => {
     serverPath,
     nodePath
   });
-  assert.match(claude, /claude mcp add --transport stdio logwork -- '\/Users\/example\/\.nvm\/versions\/node\/v24\.1\.0\/bin\/node' '\/tmp\/logwork-cli\/bin\/logwork\.mjs' mcp/);
+  assert.match(claude, /claude mcp add --transport stdio --scope user logwork -- '\/Users\/example\/\.nvm\/versions\/node\/v24\.1\.0\/bin\/node' '\/tmp\/logwork-cli\/bin\/logwork\.mjs' mcp/);
   assert.match(claude, /project \.mcp\.json/);
 
   const windowsClaude = formatMcpSetup({

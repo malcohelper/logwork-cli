@@ -1,21 +1,26 @@
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { delimiter, dirname, join, relative, resolve, win32 } from 'node:path';
+import { delimiter, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { redactText } from '../lib/auth-redaction.mjs';
 import { credentialStoreLabel } from '../lib/credential-store.mjs';
 import { npmInvocation } from '../lib/npm-command.mjs';
 import { writeRuntimeInfo } from '../lib/node-runtime.mjs';
 import { RUNTIME_INFO_FILE_NAME, helperHome } from '../lib/paths.mjs';
+import { mcpArgs, resolveLaunchCommand, writeLauncher } from '../lib/launcher.mjs';
 import {
+  MCP_LAUNCHER_NOTE,
   MCP_NODE_PATH_NOTE,
   MCP_SERVER_NAME,
+  formatClaudeMcpAddCommand,
   formatCodexToml,
   stdioMcpServersConfig,
   vscodeMcpConfig
 } from '../lib/manual-mcp.mjs';
+import { createMcpInstallContext, describeMcpPlan, planMcpInstall } from '../lib/mcp-install.mjs';
 import { loadReminderConfig } from '../lib/reminder-config.mjs';
 import { installReminderScheduler } from '../lib/reminder-scheduler.mjs';
+import { formatMcpInstallResults, isInteractiveTerminal, runMcpInstall } from './mcp.mjs';
 
 // Package name before the rename. Its global install provides a `logwork` bin
 // that would block `npm link` of logwork-cli, so setup removes it first.
@@ -28,8 +33,9 @@ const EXCLUDED_DIRS = new Set([
 ]);
 
 // `logwork setup`: copy this package into ~/.logwork-cli, install its
-// dependencies, link the `logwork` command, refresh a migrated reminder, and
-// print the MCP configs.
+// dependencies, link the `logwork` command, write the launcher, refresh a
+// migrated reminder, and add or update the `logwork` entry in the MCP clients
+// found on this machine.
 export async function run(argv = []) {
   if (argv.includes('--help') || argv.includes('-h')) {
     console.log(formatSetupHelp());
@@ -44,16 +50,19 @@ export async function run(argv = []) {
 
 export function formatSetupHelp() {
   return `Usage:
-  logwork setup [--login|--no-login]
+  logwork setup [--yes] [--no-mcp-install] [--login|--no-login]
 
-Installs the runtime to ~/.logwork-cli, links the \`logwork\` command, and prints
-MCP configs for Cursor, Antigravity, Claude Code, Codex and VS Code.
-Settings, mappings and the login session from an older logwork-helper install
-are carried over automatically.
+Installs the runtime to ~/.logwork-cli, links the \`logwork\` command, and adds
+the "logwork" MCP server to the clients it finds (Claude Code, Cursor, Codex,
+VS Code, Google Antigravity), asking once per client. Each edited config is
+backed up first. Settings, mappings and the login session from an older
+logwork-helper install are carried over automatically.
 
 Options:
-  --login     Log in to Resource Optimiser after installing
-  --no-login  Do not ask to log in`;
+  --yes, -y         Update every detected MCP client without asking
+  --no-mcp-install  Do not touch MCP client configs
+  --login           Log in to Resource Optimiser after installing
+  --no-login        Do not ask to log in`;
 }
 
 export async function installUserRuntime({
@@ -67,7 +76,9 @@ export async function installUserRuntime({
   linkFn = linkGlobalBinaries,
   authFn = maybeRunAuthLogin,
   runtimeInfoFn = recordRuntimeInfo,
+  launcherFn = writeRuntimeLauncher,
   reminderFn = refreshReminderSchedule,
+  mcpInstallFn = installMcpClients,
   printFn = printMcpInstructions
 }) {
   await mkdirFn(targetDir, { recursive: true });
@@ -79,21 +90,61 @@ export async function installUserRuntime({
   const linkResult = await linkFn(targetDir);
   const authResult = await authFn(targetDir, options);
   await runtimeInfoFn(targetDir);
+  await launcherFn(targetDir);
   const reminderResult = await reminderFn(targetDir);
-  await printFn(targetDir, authResult, linkResult, cleanupResult, reminderResult);
+  const mcpResult = await mcpInstallFn(targetDir, options);
+  await printFn(targetDir, authResult, linkResult, cleanupResult, reminderResult, mcpResult);
 
   return {
     targetDir,
     authResult,
     linkResult,
     cleanupResult,
-    reminderResult
+    reminderResult,
+    mcpResult
   };
 }
 
-// Records the node that ran setup (the one the printed MCP configs and the
-// reminder use), so doctor and reminder status can spot a removed or switched
-// Node later. Best effort: a failed write must not fail the install.
+// macOS/Linux: <home>/bin/logwork-launch, which MCP configs and the reminder
+// run. It must exist before the reminder is re-registered.
+export async function writeRuntimeLauncher(targetDir, {
+  nodePath = process.execPath,
+  platform = process.platform,
+  writeFn = writeLauncher
+} = {}) {
+  return writeFn({ home: targetDir, nodePath, platform });
+}
+
+// Adds or updates the `logwork` entry in the detected MCP clients:
+// - --no-mcp-install: skipped;
+// - --yes: every detected client, without asking;
+// - a terminal: one yes/no per client that needs a change;
+// - otherwise (npm exec from `logwork update`, CI): only the plan.
+export async function installMcpClients(targetDir, options = {}, {
+  interactive = isInteractiveTerminal(),
+  ctx = createMcpInstallContext({ home: targetDir }),
+  install = runMcpInstall,
+  plan = planMcpInstall
+} = {}) {
+  if (options.mcpInstall === false) {
+    return { mode: 'skipped', launch: ctx.launch };
+  }
+  try {
+    if (options.yes || interactive) {
+      const result = await install({ ctx, yes: Boolean(options.yes), interactive });
+      return { mode: 'installed', launch: ctx.launch, results: result.results };
+    }
+    const plans = await plan(ctx);
+    return { mode: 'planned', launch: ctx.launch, plans, lines: plans.flatMap((item) => describeMcpPlan(item, ctx)) };
+  } catch (error) {
+    return { mode: 'error', launch: ctx.launch, error: error.message };
+  }
+}
+
+// Records the node that ran setup. The macOS/Linux launcher tries it first;
+// on Windows the MCP configs and the reminder run it (or the nvm-windows
+// symlink). doctor and reminder status compare it with the current Node.
+// Best effort: a failed write must not fail the install.
 export async function recordRuntimeInfo(targetDir, {
   nodePath = process.execPath,
   nodeVersion = process.version,
@@ -117,6 +168,7 @@ export async function recordRuntimeInfo(targetDir, {
 // at a Node that nvm or Homebrew removed. Re-register it so the OS scheduler
 // runs this runtime with the current node (and the legacy entry is removed by
 // installReminderScheduler).
+// The schedule runs the launcher (macOS) or a stable node.exe (Windows).
 export async function refreshReminderSchedule(targetDir, {
   nodePath = process.execPath,
   loadConfig = loadReminderConfig,
@@ -437,6 +489,8 @@ export async function findCommandOnPath(commandName, {
 
 export function parseSetupUserArgs(args = []) {
   let loginMode = 'prompt';
+  let yes = false;
+  let mcpInstall = true;
 
   for (const arg of args) {
     if (arg === '--login') {
@@ -447,10 +501,18 @@ export function parseSetupUserArgs(args = []) {
       loginMode = 'skip';
       continue;
     }
+    if (arg === '--yes' || arg === '-y') {
+      yes = true;
+      continue;
+    }
+    if (arg === '--no-mcp-install') {
+      mcpInstall = false;
+      continue;
+    }
     throw new Error(`Unknown setup option: ${arg}`);
   }
 
-  return { loginMode };
+  return { loginMode, yes, mcpInstall };
 }
 
 async function maybeRunAuthLogin(targetDir, { loginMode }) {
@@ -521,13 +583,14 @@ function runAuthLogin(targetDir) {
   });
 }
 
-function printMcpInstructions(targetDir, authResult = null, linkResult = null, cleanupResult = null, reminderResult = null) {
+function printMcpInstructions(targetDir, authResult = null, linkResult = null, cleanupResult = null, reminderResult = null, mcpResult = null) {
   console.log(formatSetupUserInstructions({
     targetDir,
     authResult,
     linkResult,
     cleanupResult,
-    reminderResult
+    reminderResult,
+    mcpResult
   }));
 }
 
@@ -537,13 +600,14 @@ export function formatSetupUserInstructions({
   linkResult = null,
   cleanupResult = null,
   reminderResult = null,
+  mcpResult = null,
   platform = process.platform,
-  nodePath = process.execPath
+  nodePath = process.execPath,
+  env = process.env,
+  launch = mcpResult?.launch || resolveLaunchCommand({ platform, home: targetDir, execPath: nodePath, env })
 } = {}) {
-  const entryPath = platform === 'win32'
-    ? win32.resolve(targetDir, 'bin', 'logwork.mjs')
-    : resolve(targetDir, 'bin', 'logwork.mjs');
   const storeLabel = credentialStoreLabel({ platform });
+  const mcp = formatMcpSection({ mcpResult, launch, platform });
   const sections = [
     `logwork-cli installed to ${targetDir}.`,
     '',
@@ -559,28 +623,18 @@ export function formatSetupUserInstructions({
     formatTerminalCommandInstructions(linkResult),
     '',
     'Next steps',
-    ...formatNextSteps(authResult),
+    ...formatNextSteps(authResult, mcp.manual),
     '',
-    `MCP config (server name "${MCP_SERVER_NAME}", runs: ${nodePath} ${entryPath} mcp)`,
-    MCP_NODE_PATH_NOTE,
-    '',
-    'Cursor / Antigravity / Claude Code (.mcp.json):',
-    JSON.stringify(stdioMcpServersConfig(entryPath, { nodePath }), null, 2),
-    '',
-    'Codex config.toml:',
-    formatCodexToml(entryPath, { nodePath }),
-    '',
-    'GitHub Copilot / VS Code mcp.json:',
-    JSON.stringify(vscodeMcpConfig(entryPath, { nodePath }), null, 2),
+    ...mcp.lines,
     '',
     'AI agent skill (log work from your commits)',
     '- Claude Code / Codex: run `logwork skill install`.',
     '- Other MCP clients: use the MCP prompt "log_from_commits".',
     '',
     'Verify',
-    '- Restart or reload your IDE MCP tools after pasting config.',
+    '- Restart or reload your IDE MCP tools after a config change.',
     '- In the IDE, ask: Check my logwork for this week.',
-    '- An old "logwork-helper" MCP entry can be deleted; it points at the old runtime.',
+    '- `logwork mcp status` shows which clients have a current "logwork" entry.',
     '',
     'Safety',
     '- Do not paste passwords, 2FA codes, Bearer tokens, cookies, or raw curl auth logs into AI chat.',
@@ -589,6 +643,70 @@ export function formatSetupUserInstructions({
   ];
 
   return sections.join('\n');
+}
+
+// The MCP part of the setup summary. `manual` is true when the user still has
+// to paste a config somewhere.
+function formatMcpSection({ mcpResult, launch, platform }) {
+  const header = `MCP server "${MCP_SERVER_NAME}" runs: ${[launch.command, ...mcpArgs(launch)].join(' ')}`;
+  if (mcpResult?.mode === 'installed' && mcpResult.results?.length) {
+    const failed = mcpResult.results.some((result) => result.status === 'failed');
+    return {
+      manual: failed,
+      lines: [header, 'MCP clients', ...formatMcpInstallResults(mcpResult.results)]
+    };
+  }
+  if (mcpResult?.mode === 'planned') {
+    const pending = (mcpResult.plans || []).some((plan) => plan.action === 'add' || plan.action === 'update');
+    if (mcpResult.plans?.length) {
+      return {
+        manual: false,
+        lines: [
+          header,
+          'MCP clients (not changed: this is not an interactive terminal)',
+          ...(mcpResult.lines || []),
+          ...(pending ? ['To apply: run `logwork mcp install` (asks per client) or `logwork mcp install --yes`.'] : [])
+        ]
+      };
+    }
+  }
+  if (mcpResult?.mode === 'skipped') {
+    return {
+      manual: false,
+      lines: [header, 'MCP clients: not changed (--no-mcp-install). Run `logwork mcp install` to add or update them, or `logwork mcp status` to check.']
+    };
+  }
+  // No client found, an error, or an older caller: print every snippet.
+  const lines = [header];
+  if (mcpResult?.mode === 'error') {
+    lines.push(`MCP clients: could not update automatically (${redactText(mcpResult.error || 'unknown error')}).`);
+  } else if (mcpResult) {
+    lines.push('MCP clients: none found (Claude Code, Cursor, Codex, VS Code, Google Antigravity).');
+  }
+  lines.push(...formatManualMcpSnippets(launch, { platform }));
+  return { manual: true, lines };
+}
+
+export function formatManualMcpSnippets(launch, { platform = process.platform } = {}) {
+  const note = launch.stable ? (launch.kind === 'launcher' ? MCP_LAUNCHER_NOTE : '') : MCP_NODE_PATH_NOTE;
+  return [
+    'Manual MCP config (paste into your client):',
+    ...(note ? [note] : []),
+    '',
+    'Cursor / Antigravity / Claude Code (.mcp.json):',
+    JSON.stringify(stdioMcpServersConfig(launch), null, 2),
+    '',
+    'Claude Code CLI:',
+    formatClaudeMcpAddCommand(launch, { platform }),
+    '',
+    'Codex config.toml:',
+    formatCodexToml(launch),
+    '',
+    'GitHub Copilot / VS Code mcp.json:',
+    JSON.stringify(vscodeMcpConfig(launch), null, 2),
+    '',
+    'An old "logwork-helper" MCP entry can be deleted; it points at the old runtime.'
+  ];
 }
 
 function formatAuthStatus(authResult) {
@@ -601,7 +719,7 @@ function formatAuthStatus(authResult) {
   return 'not run';
 }
 
-function formatNextSteps(authResult) {
+function formatNextSteps(authResult, manualMcp = true) {
   const steps = [];
   let index = 1;
   if (!authResult?.ok) {
@@ -609,9 +727,12 @@ function formatNextSteps(authResult) {
     steps.push('   logwork login');
     index += 1;
   }
-  steps.push(`${index}. Paste one MCP config below into your IDE.`);
-  steps.push(`${index + 1}. Restart or reload your IDE MCP tools.`);
-  steps.push(`${index + 2}. Verify with: Check my logwork for this week.`);
+  if (manualMcp) {
+    steps.push(`${index}. Paste the MCP config below into your IDE (or run \`logwork mcp install\`).`);
+    index += 1;
+  }
+  steps.push(`${index}. Restart or reload your IDE MCP tools.`);
+  steps.push(`${index + 1}. Verify with: Check my logwork for this week.`);
   return steps;
 }
 

@@ -19,6 +19,7 @@ import {
 import {
   formatNodePathIssue,
   inspectNodePath,
+  inspectScheduledCommand,
   loadRuntimeInfo,
   writeRuntimeInfo
 } from '../lib/node-runtime.mjs';
@@ -68,18 +69,43 @@ test('Codex TOML quotes and escapes the absolute node path', () => {
   assert.match(formatCodexToml('/x/logwork.mjs'), new RegExp(`^command = "${escapeRegExp(process.execPath.replaceAll('\\', '\\\\'))}"$`, 'm'));
 });
 
-test('setup checklist prints every snippet with the absolute node path and the refresh note', () => {
+test('setup fallback snippets on Windows use node.exe plus the entry; the refresh note only for an unstable node', () => {
   const output = formatSetupUserInstructions({
     targetDir: 'C:\\Users\\Jane Doe\\.logwork-cli',
     platform: 'win32',
-    nodePath: WINDOWS_NODE
+    nodePath: WINDOWS_NODE,
+    env: {}
   });
   assert.match(output, /runs: C:\\Program Files\\nodejs\\node\.exe C:\\Users\\Jane Doe\\\.logwork-cli\\bin\\logwork\.mjs mcp/);
   assert.equal((output.match(/"command": "C:\\\\Program Files\\\\nodejs\\\\node\.exe"/g) || []).length, 2);
   assert.match(output, /^command = "C:\\\\Program Files\\\\nodejs\\\\node\.exe"$/m);
   assert.match(output, /"C:\\\\Users\\\\Jane Doe\\\\\.logwork-cli\\\\bin\\\\logwork\.mjs"/);
-  assert.match(output, /If Node is upgraded or moved .* re-run `logwork setup`/);
+  assert.match(output, /claude mcp add --transport stdio --scope user logwork -- 'C:\\Program Files\\nodejs\\node\.exe' 'C:\\Users\\Jane Doe\\\.logwork-cli\\bin\\logwork\.mjs' mcp/);
+  // The installer location survives upgrades: no refresh note.
+  assert.doesNotMatch(output, /re-run `logwork setup`/);
   assert.doesNotMatch(output, /"command": "node"/);
+
+  const scoop = formatSetupUserInstructions({
+    targetDir: 'C:\\Users\\Jane Doe\\.logwork-cli',
+    platform: 'win32',
+    nodePath: 'C:\\Users\\Jane Doe\\scoop\\apps\\nodejs\\22.11.0\\node.exe',
+    env: {}
+  });
+  assert.match(scoop, /If Node is upgraded or moved .* re-run `logwork setup`/);
+});
+
+test('setup fallback snippets on macOS run the launcher with no refresh note', () => {
+  const output = formatSetupUserInstructions({
+    targetDir: '/Users/jane/.logwork-cli',
+    platform: 'darwin',
+    nodePath: '/Users/jane/.nvm/versions/node/v22.11.0/bin/node'
+  });
+  assert.match(output, /runs: \/Users\/jane\/\.logwork-cli\/bin\/logwork-launch mcp/);
+  assert.match(output, /"command": "\/Users\/jane\/\.logwork-cli\/bin\/logwork-launch",\n\s+"args": \[\n\s+"mcp"\n\s+\]/);
+  assert.match(output, /^args = \["mcp"\]$/m);
+  assert.doesNotMatch(output, /\.nvm/);
+  assert.doesNotMatch(output, /re-run `logwork setup`/);
+  assert.match(output, /finds Node 22\+ itself/);
 });
 
 test('runtime file records node path, node version and package version atomically', async () => {
@@ -131,14 +157,17 @@ test('setup records the runtime before it re-registers the reminder', async () =
     linkFn: async () => ({ linked: true, commandAvailable: true }),
     authFn: async () => null,
     runtimeInfoFn: async () => { order.push('runtime'); },
+    launcherFn: async () => { order.push('launcher'); },
     reminderFn: async () => { order.push('reminder'); return null; },
+    mcpInstallFn: async () => { order.push('mcp'); return { mode: 'skipped' }; },
     printFn: async () => {}
   });
-  assert.deepEqual(order, ['runtime', 'reminder']);
+  assert.deepEqual(order, ['runtime', 'launcher', 'reminder', 'mcp']);
 });
 
-test('setup re-registers an enabled reminder with the current node path', async () => {
+test('setup re-registers an enabled reminder that runs the launcher', async () => {
   let plist = '';
+  let launcher = null;
   const newNode = '/Users/test/.nvm/versions/node/v24.1.0/bin/node';
   const result = await refreshReminderSchedule('/Users/test/.logwork-cli', {
     nodePath: newNode,
@@ -149,12 +178,34 @@ test('setup re-registers an enabled reminder with the current node path', async 
       userHome: '/Users/test',
       uid: 501,
       accessRunner: async () => {},
+      writeLauncherFn: async (value) => { launcher = value; },
       writeFile: async (_path, content) => { plist = content; },
       run: async () => ({ code: 0, stdout: '', stderr: '' })
     })
   });
   assert.deepEqual(result, { ok: true, nodePath: newNode });
-  assert.equal(parseMacosPlistNodePath(plist), newNode);
+  assert.equal(parseMacosPlistNodePath(plist), '/Users/test/.logwork-cli/bin/logwork-launch');
+  assert.match(plist, /logwork-launch<\/string>\n\s+<string>reminder<\/string>\n\s+<string>run<\/string>/);
+  assert.doesNotMatch(plist, /\.nvm|logwork\.mjs/);
+  assert.deepEqual(launcher, { home: '/Users/test/.logwork-cli', nodePath: newNode, platform: 'darwin' });
+
+  // Windows: the task runs node.exe (the nvm-windows symlink here) plus the entry.
+  let createArgs = null;
+  await installReminderScheduler(CONFIG, {
+    platform: 'win32',
+    home: 'C:\\Users\\test\\.logwork-cli',
+    nodePath: 'C:\\Users\\test\\AppData\\Roaming\\nvm\\v22.11.0\\node.exe',
+    env: { NVM_HOME: 'C:\\Users\\test\\AppData\\Roaming\\nvm', NVM_SYMLINK: 'C:\\nvm4w\\nodejs' },
+    accessRunner: async () => {},
+    writeLauncherFn: async () => { throw new Error('no launcher on Windows'); },
+    run: async (command, args) => {
+      if (args[0] === '/Create') {
+        createArgs = args;
+      }
+      return { code: args[0] === '/Query' ? 1 : 0, stdout: '', stderr: '' };
+    }
+  });
+  assert.equal(createArgs[createArgs.indexOf('/TR') + 1], 'C:\\nvm4w\\nodejs\\node.exe C:\\Users\\test\\.logwork-cli\\bin\\logwork.mjs reminder run --home C:\\Users\\test\\.logwork-cli');
 
   assert.equal(await refreshReminderSchedule('/x', { loadConfig: async () => ({ ...CONFIG, enabled: false }) }), null);
 });
@@ -222,18 +273,27 @@ test('node path inspection detects missing and stale paths', async () => {
   }
 
   assert.match(formatNodePathIssue('reminder', { status: 'missing', recordedPath: old }), /no longer exists.*`logwork reminder enable`/);
-  assert.match(formatNodePathIssue('reminder', { status: 'stale', recordedPath: old, currentPath: current }), /current Node is .*`logwork reminder enable`/);
+  assert.match(formatNodePathIssue('reminder', { status: 'stale', recordedPath: old, currentPath: current }), /current command is .*`logwork reminder enable`/);
+  assert.match(formatNodePathIssue('reminder', { status: 'legacy', recordedPath: old }), /directly instead of the logwork launcher.*re-run `logwork setup`/);
   assert.match(formatNodePathIssue('runtime', { status: 'missing', recordedPath: old }), /no longer exists.*`logwork setup`/);
   assert.match(formatNodePathIssue('runtime', { status: 'stale', recordedPath: old, currentPath: current }), /`logwork setup`/);
   assert.equal(formatNodePathIssue('runtime', { status: 'ok' }), '');
 });
 
-test('reminder status warns when the scheduled node path is gone or stale', async () => {
+test('reminder status classifies the scheduled command: launcher, legacy raw node, missing', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'logwork-reminder-node-'));
+  const launcher = join(dir, 'bin', 'logwork-launch');
+  await mkdir(join(dir, 'bin'));
+  await writeFile(launcher, '');
+  const oldNode = join(dir, 'old-node');
+  await writeFile(oldNode, '');
+  const launch = { command: launcher, argsPrefix: [], kind: 'launcher', stable: true };
   const base = {
     loadConfig: async () => CONFIG,
-    loadState: async () => null
+    loadState: async () => null,
+    inspectNode: (path) => inspectScheduledCommand(path, { launch, platform: 'darwin' })
   };
+
   const missing = await getLogworkReminderStatus({
     ...base,
     schedulerStatus: async () => ({ installed: true, scheduler: 'launchd', nodePath: join(dir, 'removed', 'node') })
@@ -242,33 +302,64 @@ test('reminder status warns when the scheduled node path is gone or stale', asyn
   assert.match(missing.summary, /OS scheduler: launchd installed/);
   assert.match(missing.summary, /Warning: Reminder: the OS schedule runs Node at .*removed.* no longer exists.*`logwork reminder enable`/);
 
-  const stale = await getLogworkReminderStatus({
+  const legacy = await getLogworkReminderStatus({
     ...base,
-    schedulerStatus: async () => ({ installed: true, scheduler: 'launchd', nodePath: '/old/node' }),
-    inspectNode: async (path) => ({ status: 'stale', recordedPath: path, currentPath: '/new/node' })
+    schedulerStatus: async () => ({ installed: true, scheduler: 'launchd', nodePath: oldNode })
   });
-  assert.match(stale.summary, /runs Node at \/old\/node, but the current Node is \/new\/node/);
+  assert.equal(legacy.nodeCheck.status, 'legacy');
+  assert.match(legacy.summary, /directly instead of the logwork launcher.*re-run `logwork setup`/);
+
+  const otherLauncher = await getLogworkReminderStatus({
+    ...base,
+    schedulerStatus: async () => ({ installed: true, scheduler: 'launchd', nodePath: join(dir, 'gone', 'bin', 'logwork-launch') })
+  });
+  assert.equal(otherLauncher.nodeCheck.status, 'missing');
+  assert.match(otherLauncher.summary, /runs the logwork launcher at .*gone/);
 
   const healthy = await getLogworkReminderStatus({
     ...base,
-    schedulerStatus: async () => ({ installed: true, scheduler: 'launchd', nodePath: process.execPath })
+    schedulerStatus: async () => ({ installed: true, scheduler: 'launchd', nodePath: launcher }),
+    checkLaunch: async () => ({ status: 'ok', kind: 'launcher', command: launcher, node: '/opt/homebrew/bin/node', version: '1.2.0' })
   });
   assert.equal(healthy.nodeCheck.status, 'ok');
+  assert.match(healthy.summary, /Launcher: runs Node \/opt\/homebrew\/bin\/node\./);
   assert.doesNotMatch(healthy.summary, /Warning/);
+
+  const broken = await getLogworkReminderStatus({
+    ...base,
+    schedulerStatus: async () => ({ installed: true, scheduler: 'launchd', nodePath: launcher }),
+    checkLaunch: async () => ({ status: 'no_node', kind: 'launcher', command: launcher })
+  });
+  assert.match(broken.summary, /Warning: Launcher: found no usable Node\.js 22\+/);
+
+  // Windows: the task runs node.exe; compared with the current launch command.
+  const windowsLaunch = { command: WINDOWS_NODE, argsPrefix: [WINDOWS_ENTRY], kind: 'node', stable: true };
+  const windowsCurrent = await inspectScheduledCommand(WINDOWS_NODE.toUpperCase(), { launch: windowsLaunch, platform: 'win32', exists: async () => true });
+  assert.equal(windowsCurrent.status, 'ok');
+  const windowsStale = await inspectScheduledCommand('C:\\nvm\\v22.1.0\\node.exe', {
+    launch: windowsLaunch,
+    platform: 'win32',
+    inspect: async (path, options) => ({ status: 'stale', recordedPath: path, currentPath: options.currentPath })
+  });
+  assert.equal(windowsStale.status, 'stale');
+  assert.match(formatNodePathIssue('reminder', windowsStale), /runs Node at C:\\nvm.*current command is C:\\Program Files/);
 });
 
-test('doctor reports a missing or stale node path with the fix and stays sanitized', async () => {
+test('doctor reports the launcher, a missing or stale node path with the fix, and stays sanitized', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'logwork-doctor-node-'));
   await withEnv({ LOGWORK_HOME: dir, LOGWORK_HELPER_HOME: undefined }, async () => {
+    const windowsLaunch = { command: WINDOWS_NODE, argsPrefix: [WINDOWS_ENTRY], kind: 'node', stable: true };
     const check = await collectNodeRuntimeCheck({
+      launch: windowsLaunch,
+      checkLaunch: async () => ({ status: 'ok', kind: 'node', command: WINDOWS_NODE, node: WINDOWS_NODE, version: '1.2.0' }),
       loadRuntime: async () => ({ nodePath: join(dir, 'v22', 'node'), nodeVersion: 'v22.11.0' }),
       readSchedulerNodePath: async () => '/old/node?access_token=secret-value',
-      inspect: async (path) => (path.startsWith('/old')
-        ? { status: 'stale', recordedPath: path, currentPath: '/new/node' }
-        : { status: 'missing', recordedPath: path, currentPath: '/new/node' })
+      inspect: async (path) => ({ status: 'missing', recordedPath: path, currentPath: '/new/node' }),
+      inspectScheduled: async (path) => ({ status: 'stale', recordedPath: path, currentPath: '/new/node', kind: 'node' })
     });
     assert.equal(check.recordedStatus, 'missing');
     assert.equal(check.reminderStatus, 'stale');
+    assert.equal(check.launchStatus, 'ok');
     assert.equal(check.issues.length, 2);
 
     const outputPath = join(dir, 'diagnostics', 'report.txt');
@@ -278,17 +369,45 @@ test('doctor reports a missing or stale node path with the fix and stays sanitiz
       commandFinder: async () => ({ available: false, path: null }),
       authStatusFn: async () => ({ authenticated: false }),
       mcpSmokeFn: async () => ({ ok: true, toolCount: 0, tools: [] }),
-      nodeRuntimeFn: async () => check
+      nodeRuntimeFn: async () => check,
+      mcpClientsFn: async () => [
+        { label: 'Cursor', status: 'stale', reason: 'runs Node at /gone/node, which no longer exists', legacy: true, localScopes: 0 },
+        { label: 'Codex', status: 'current', reason: '', legacy: false, localScopes: 0 }
+      ]
     });
     const report = await readFile(outputPath, 'utf8');
     assert.match(report, /# Node Path/);
+    assert.match(report, /launchCommand: C:\\Program Files\\nodejs\\node\.exe C:\\Users/);
+    assert.match(report, /launchStatus: ok/);
     assert.match(report, /recordedNodeStatus: missing/);
     assert.match(report, /reminderNodeStatus: stale/);
     assert.match(report, /warning: Runtime: .*no longer exists.*`logwork setup`/);
+    assert.match(report, /# MCP Clients\nCursor: stale \(runs Node at \/gone\/node, which no longer exists; leftover logwork-helper entry\)\nCodex: current/);
     assert.match(result.summary, /Warning: Reminder: .*`logwork reminder enable`/);
+    assert.match(result.summary, /Warning: MCP: Cursor: stale .*`logwork mcp install`/);
     assert.match(result.summary, /Diagnostics report written to/);
     assert.doesNotMatch(report, /secret-value/);
     assert.doesNotMatch(result.summary, /secret-value/);
+
+    // macOS launcher: a gone recorded node is covered by the launcher fallback.
+    const launcherPath = join(dir, 'bin', 'logwork-launch');
+    const covered = await collectNodeRuntimeCheck({
+      launch: { command: launcherPath, argsPrefix: [], kind: 'launcher', stable: true },
+      checkLaunch: async () => ({ status: 'ok', kind: 'launcher', command: launcherPath, node: '/opt/homebrew/bin/node', version: '1.2.0' }),
+      loadRuntime: async () => ({ nodePath: join(dir, 'v22', 'node'), nodeVersion: 'v22.11.0' }),
+      readSchedulerNodePath: async () => null
+    });
+    assert.equal(covered.recordedStatus, 'missing');
+    assert.match(covered.recordedNote, /launcher uses \/opt\/homebrew\/bin\/node/);
+    assert.deepEqual(covered.issues, []);
+
+    const brokenLauncher = await collectNodeRuntimeCheck({
+      launch: { command: launcherPath, argsPrefix: [], kind: 'launcher', stable: true },
+      loadRuntime: async () => null,
+      readSchedulerNodePath: async () => null
+    });
+    assert.equal(brokenLauncher.launchStatus, 'missing');
+    assert.match(brokenLauncher.issues[0], /Launcher: .*logwork-launch is missing.*`logwork setup`/);
 
     // Healthy runtime: no warnings.
     const healthy = await generateDiagnosticsReport({
@@ -297,13 +416,18 @@ test('doctor reports a missing or stale node path with the fix and stays sanitiz
       commandFinder: async () => ({ available: false, path: null }),
       authStatusFn: async () => ({ authenticated: false }),
       mcpSmokeFn: async () => ({ ok: true, toolCount: 0, tools: [] }),
+      mcpClientsFn: async () => [],
       nodeRuntimeFn: () => collectNodeRuntimeCheck({
+        launch: { command: launcherPath, argsPrefix: [], kind: 'launcher', stable: true },
+        checkLaunch: async () => ({ status: 'ok', kind: 'launcher', command: launcherPath, node: process.execPath, version: '1.2.0' }),
         loadRuntime: async () => ({ nodePath: process.execPath, nodeVersion: process.version }),
         readSchedulerNodePath: async () => null
       })
     });
     assert.match(healthy.report, /recordedNodeStatus: ok/);
+    assert.match(healthy.report, /launchNode: /);
     assert.match(healthy.report, /warnings: none/);
+    assert.match(healthy.report, /# MCP Clients\nnone detected/);
     assert.deepEqual(healthy.nodeIssues, []);
     assert.doesNotMatch(healthy.summary, /Warning/);
   });
