@@ -43,7 +43,7 @@ The old git `commit-msg` hook, `install.mjs`, `hooks/`, `lib/protocol.mjs` and `
 ```bash
 npm ci
 npm test                                   # node --test, all suites in test/*.test.mjs
-node --test test/batch-workflow.test.mjs   # single suite
+node --import ./test/helpers/setup.mjs --test test/batch-workflow.test.mjs   # single suite
 npm run dry-run                            # terminal UI with LOGWORK_DRY_RUN=1
 LOGWORK_DRY_RUN=1 node bin/logwork.mjs mcp # MCP server without RO or Jira writes
 npm run lint                               # ESLint 9 flat config (eslint.config.mjs)
@@ -58,7 +58,7 @@ User-facing CLI:
 
 `LOGWORK_DRY_RUN=1` (checked with `isDryRun()` from `lib/config.mjs`) makes the RO write functions in `lib/ro-api-entries.mjs` (re-exported by `lib/api.mjs`) and every non-GET `jiraApiFetch` call in `lib/jira-api.mjs` return `{ dryRun: true, method, path, body }` instead of calling the API, with no token or headers. Reads still hit the API. The Jira apply then reports `status: 'dry_run'` and records `dry_run` entries in the apply ledger.
 
-`LOGWORK_HOME` relocates local state; `LOGWORK_HELPER_HOME` is still honored. Tests set one of them to a temp dir, which also disables the legacy migration.
+`LOGWORK_HOME` relocates local state; `LOGWORK_HELPER_HOME` is still honored. The test bootstrap `test/helpers/setup.mjs` (loaded with `--import` by every test script) clears all `LOGWORK_*` variables from the shell and sets `LOGWORK_HOME` to a fresh temp dir per test process, so tests never read the real `~/.logwork-cli` and the legacy migration stays off. Tests may still set these variables themselves.
 
 ## Logwork entry model (important)
 

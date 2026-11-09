@@ -60,8 +60,8 @@
     "release:doctor": "node bin/logwork.mjs release doctor --full",
     "lint": "eslint .",
     "release:check": "npm run lint && npm test && npm run audit:prod && npm run pack:check && git diff --check",
-    "test:windows-credential": "node --test --test-name-pattern=\"Windows Credential Manager stores, reads, and deletes a test credential\" test/credential-store.test.mjs",
-    "test": "node --test"
+    "test:windows-credential": "node --import ./test/helpers/setup.mjs --test --test-name-pattern=\"Windows Credential Manager stores, reads, and deletes a test credential\" test/credential-store.test.mjs",
+    "test": "node --import ./test/helpers/setup.mjs --test \"test/*.test.mjs\""
   },
   "dependencies": {
     "@clack/prompts": "^1.5.0",
