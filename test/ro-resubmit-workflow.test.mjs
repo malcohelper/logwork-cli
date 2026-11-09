@@ -35,7 +35,7 @@ test('previewRoLogworkResubmit and apply use fingerprint guard', async () => {
 
   assert.equal(preview.status, 'ready');
   assert.equal(preview.updated.hours, 3);
-  assert.match(preview.summary, /rejected -> approved/);
+  assert.match(preview.summary, /rejected -> resubmitted/);
 
   const writes = [];
   const result = await applyRoLogworkResubmit({

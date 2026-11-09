@@ -29,7 +29,7 @@ const projects = [
     projectName: '2621A-SIT-HTML BUILDER-PRJ'
   }
 ];
-const envSnapshot = snapshotEnv(['HOME', 'LOGWORK_HELPER_HOME']);
+const envSnapshot = snapshotEnv(['HOME', 'LOGWORK_HOME', 'LOGWORK_HELPER_HOME']);
 
 test.afterEach(() => {
   restoreEnv(envSnapshot);
@@ -356,6 +356,6 @@ async function useTempHelperHome({ preserveHome = false } = {}) {
     process.env.HOME = await mkdtemp(join(tmpdir(), 'logwork-helper-test-home-'));
   }
   const home = await mkdtemp(join(tmpdir(), 'logwork-helper-home-'));
-  process.env.LOGWORK_HELPER_HOME = home;
+  process.env.LOGWORK_HOME = home;
   return home;
 }

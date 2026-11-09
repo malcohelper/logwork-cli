@@ -210,12 +210,18 @@ test('RO edit apply finds the new entry id from the day when create returns none
     fetchLogwork,
     fetchWorklogTasks
   });
+  // An identical older entry (304050) is already on the day; only the entry
+  // that appears after the create counts as the replacement.
+  const day = [{ ...ORIGINAL }, { ...created, id: 304050 }];
   const result = await applyRoLogworkEdit({
     preview,
     confirm: true,
     fetchLogwork,
-    fetchDayEntries: async () => [{ ...ORIGINAL }, { ...created }],
-    submitCreate: async () => ({ dryRun: false, entry: null }),
+    fetchDayEntries: async () => day.map((entry) => ({ ...entry })),
+    submitCreate: async () => {
+      day.push({ ...created });
+      return { dryRun: false, entry: null };
+    },
     submitDelete: async () => ({ dryRun: false }),
     recordLedger: null
   });
@@ -236,6 +242,7 @@ test('RO edit apply rolls back the replacement when deleting the original fails'
     preview,
     confirm: true,
     fetchLogwork,
+    fetchDayEntries: async () => [{ ...ORIGINAL }, { ...ORIGINAL, id: 304102 }],
     submitCreate: async () => ({ dryRun: false, entry: { id: 304102 } }),
     submitDelete: async (id) => {
       deleted.push(id);
@@ -250,6 +257,72 @@ test('RO edit apply rolls back the replacement when deleting the original fails'
     return true;
   });
   assert.deepEqual(deleted, [304032, 304102]);
+});
+
+test('RO edit apply keeps the replacement when a failed delete actually removed the original', async () => {
+  const deleted = [];
+  const created = { ...ORIGINAL, id: 304103, hours: 2, status: 'submitted' };
+  const fetchLogwork = async (id) => (Number(id) === created.id ? { ...created } : { ...ORIGINAL });
+  const preview = await previewRoLogworkEdit({ logworkId: ORIGINAL.id, hours: 2, fetchLogwork, fetchWorklogTasks });
+  const result = await applyRoLogworkEdit({
+    preview,
+    confirm: true,
+    fetchLogwork,
+    // The DELETE timed out on the client but RO already removed the original.
+    fetchDayEntries: async () => (deleted.length ? [{ ...created }] : [{ ...ORIGINAL }]),
+    submitCreate: async () => ({ dryRun: false, entry: { id: created.id } }),
+    submitDelete: async (id) => {
+      deleted.push(id);
+      throw new Error('Request timed out');
+    },
+    recordLedger: null
+  });
+  assert.equal(result.status, 'replaced');
+  assert.equal(result.newLogworkId, 304103);
+  assert.deepEqual(deleted, [304032], 'the replacement is not rolled back');
+});
+
+test('RO edit apply keeps the replacement and reports when the original state is unknown', async () => {
+  const deleted = [];
+  const fetchLogwork = async () => ({ ...ORIGINAL });
+  const preview = await previewRoLogworkEdit({ logworkId: ORIGINAL.id, hours: 2, fetchLogwork, fetchWorklogTasks });
+  await assert.rejects(() => applyRoLogworkEdit({
+    preview,
+    confirm: true,
+    fetchLogwork,
+    submitCreate: async () => ({ dryRun: false, entry: { id: 304104 } }),
+    submitDelete: async (id) => {
+      deleted.push(id);
+      throw new Error('socket hang up');
+    },
+    recordLedger: null
+  }), (error) => {
+    assert.match(error.message, /replacement entry 304104 was kept/);
+    assert.equal(error.rolledBack, false);
+    return true;
+  });
+  assert.deepEqual(deleted, [304032]);
+});
+
+test('RO edit apply uses the saved entry when create times out after RO saved it', async () => {
+  const created = { ...ORIGINAL, id: 304105, hours: 2, status: 'submitted' };
+  const day = [{ ...ORIGINAL }];
+  const fetchLogwork = async (id) => (Number(id) === created.id ? { ...created } : { ...ORIGINAL });
+  const preview = await previewRoLogworkEdit({ logworkId: ORIGINAL.id, hours: 2, fetchLogwork, fetchWorklogTasks });
+  const result = await applyRoLogworkEdit({
+    preview,
+    confirm: true,
+    fetchLogwork,
+    fetchDayEntries: async () => day.map((entry) => ({ ...entry })),
+    submitCreate: async () => {
+      day.push({ ...created });
+      throw new Error('Request timed out');
+    },
+    submitDelete: async () => ({ dryRun: false }),
+    recordLedger: null
+  });
+  assert.equal(result.status, 'replaced');
+  assert.equal(result.newLogworkId, 304105);
 });
 
 test('RO edit apply keeps the original when create fails', async () => {

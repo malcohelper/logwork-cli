@@ -15,7 +15,7 @@ function makeJwt() {
 
 test('generateDiagnosticsReport writes sanitized support report', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'logwork-diagnostics-'));
-  await withEnv({ LOGWORK_HELPER_HOME: dir }, async () => {
+  await withEnv({ LOGWORK_HOME: dir, LOGWORK_HELPER_HOME: undefined }, async () => {
     await mkdir(dir, { recursive: true });
     const cwd = join(dir, 'project');
     await mkdir(cwd, { recursive: true });
@@ -107,7 +107,7 @@ test('generateDiagnosticsReport writes sanitized support report', async () => {
 
 test('generateDiagnosticsReport can include mapping details with explicit opt-in', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'logwork-diagnostics-mapping-opt-in-'));
-  await withEnv({ LOGWORK_HELPER_HOME: dir }, async () => {
+  await withEnv({ LOGWORK_HOME: dir, LOGWORK_HELPER_HOME: undefined }, async () => {
     await mkdir(dir, { recursive: true });
     const cwd = join(dir, 'project');
     await mkdir(cwd, { recursive: true });
@@ -140,7 +140,7 @@ test('generateDiagnosticsReport can include mapping details with explicit opt-in
 
 test('diagnosticsReportPath writes inside helper diagnostics directory', () => {
   const dir = join(tmpdir(), 'logwork-helper-home-test');
-  return withEnv({ LOGWORK_HELPER_HOME: dir }, async () => {
+  return withEnv({ LOGWORK_HOME: dir, LOGWORK_HELPER_HOME: undefined }, async () => {
     const path = diagnosticsReportPath(new Date('2026-06-09T01:02:03.004Z'));
     assert.equal(path, join(dir, 'diagnostics', 'logwork-diagnostics-2026-06-09T01-02-03-004Z.txt'));
   });

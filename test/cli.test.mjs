@@ -399,7 +399,8 @@ test('global binary link failure is reported without throwing', async () => {
       calls.push([command, args]);
       throw new Error('EACCES: permission denied');
     },
-    commandFinder: async () => true
+    commandFinder: async () => true,
+    prefixReader: async () => ''
   });
 
   assert.deepEqual(calls, [['npm', ['rm', '-g', 'logwork-helper']], ['npm', ['link']]]);
@@ -414,7 +415,8 @@ test('global binary link warns when logwork is not visible on PATH', async () =>
     runner: async (command, args) => {
       calls.push([command, args]);
     },
-    commandFinder: async () => false
+    commandFinder: async () => false,
+    prefixReader: async () => ''
   });
 
   assert.deepEqual(calls, [['npm', ['rm', '-g', 'logwork-helper']], ['npm', ['link']]]);

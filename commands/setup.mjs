@@ -4,6 +4,7 @@ import { delimiter, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { redactText } from '../lib/auth-redaction.mjs';
 import { credentialStoreLabel } from '../lib/credential-store.mjs';
+import { npmInvocation } from '../lib/npm-command.mjs';
 import { helperHome } from '../lib/paths.mjs';
 import {
   MCP_SERVER_NAME,
@@ -59,7 +60,7 @@ export async function installUserRuntime({
   sourceDir,
   targetDir,
   mkdirFn = fs.mkdir,
-  copyFn = copyDirectory,
+  copyFn = copyRuntimeFiles,
   cleanupFn = sanitizeRuntimeMetadata,
   installFn = installDependencies,
   linkFn = linkGlobalBinaries,
@@ -103,6 +104,40 @@ async function refreshReminderSchedule(targetDir) {
   }
 }
 
+// Copies only what the npm package ships (package.json "files", plus the
+// manifest and lockfile). The target is also the state directory, so a git
+// checkout's .env files, tests, archives or a repo-scope .logwork.json must
+// never land there.
+export async function copyRuntimeFiles(sourceDir, targetDir) {
+  const manifest = JSON.parse(await fs.readFile(join(sourceDir, 'package.json'), 'utf8'));
+  const listed = Array.isArray(manifest.files) ? manifest.files : [];
+  const names = ['package.json', 'package-lock.json', 'npm-shrinkwrap.json', ...listed.map((item) => String(item).replace(/[\\/]+$/, ''))];
+  for (const name of [...new Set(names)]) {
+    const sourcePath = join(sourceDir, name);
+    let stat;
+    try {
+      stat = await fs.stat(sourcePath);
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        // A lockfile from an earlier install that no longer matches this
+        // package.json would make `npm ci` fail; let npm install write a new one.
+        if (name === 'package-lock.json') {
+          await fs.rm(join(targetDir, name), { force: true });
+        }
+        continue;
+      }
+      throw error;
+    }
+    if (stat.isDirectory()) {
+      await fs.mkdir(join(targetDir, name), { recursive: true });
+      await copyDirectory(sourcePath, targetDir, sourceDir);
+    } else {
+      await fs.mkdir(dirname(join(targetDir, name)), { recursive: true });
+      await fs.copyFile(sourcePath, join(targetDir, name));
+    }
+  }
+}
+
 async function copyDirectory(sourceDir, targetDir, rootDir) {
   const entries = await fs.readdir(sourceDir, { withFileTypes: true });
 
@@ -139,7 +174,8 @@ function installDependencies(targetDir) {
 
 function runCommand(command, args, options = {}) {
   return new Promise((resolveValue, reject) => {
-    const child = spawn(command, args, options);
+    const invocation = command === 'npm' ? npmInvocation(args) : { command, args, shell: false };
+    const child = spawn(invocation.command, invocation.args, { ...options, shell: invocation.shell });
 
     child.on('error', reject);
     child.on('close', (code) => {
@@ -243,9 +279,73 @@ function isStaleSelfDependency(value) {
   return typeof value === 'string' && /^file:.*logwork-(helper|cli).*\.tgz$/i.test(value);
 }
 
+const LEGACY_GLOBAL_LINKS = [
+  'bin/logwork',
+  'bin/logwork-helper',
+  'bin/logwork-helper-install',
+  'bin/logwork-helper-manual',
+  'bin/logwork-helper-mcp',
+  'bin/logwork-helper-setup-user',
+  'lib/node_modules/logwork-helper'
+];
+
+// The old package was installed with `npm link` from ~/.logwork-helper. When
+// that folder is deleted first, its global links dangle: `npm rm -g` cannot
+// read the package any more and leaves bin/logwork behind, which then blocks
+// `npm install -g logwork-cli` and `npm link` with EEXIST. Remove only links
+// that point into a logwork-helper path that no longer exists.
+export async function removeDanglingLegacyLinks(globalPrefix, {
+  platform = process.platform,
+  lstatFn = fs.lstat,
+  statFn = fs.stat,
+  readlinkFn = fs.readlink,
+  unlinkFn = fs.unlink
+} = {}) {
+  const removed = [];
+  if (!globalPrefix || platform === 'win32') {
+    return removed;
+  }
+  for (const relativePath of LEGACY_GLOBAL_LINKS) {
+    const path = join(globalPrefix, relativePath);
+    try {
+      if (!(await lstatFn(path)).isSymbolicLink()) {
+        continue;
+      }
+      if (!/logwork-helper/.test(await readlinkFn(path))) {
+        continue;
+      }
+      try {
+        await statFn(path);
+        continue;
+      } catch {
+        // Dangling: the target is gone.
+      }
+      await unlinkFn(path);
+      removed.push(path);
+    } catch {
+      // Missing or unreadable: nothing to clean.
+    }
+  }
+  return removed;
+}
+
+function readNpmGlobalPrefix(cwd) {
+  return new Promise((resolveValue) => {
+    const invocation = npmInvocation(['prefix', '-g']);
+    const child = spawn(invocation.command, invocation.args, { cwd, shell: invocation.shell, stdio: ['ignore', 'pipe', 'ignore'] });
+    let stdout = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.on('error', () => resolveValue(''));
+    child.on('close', (code) => resolveValue(code === 0 ? stdout.trim() : ''));
+  });
+}
+
 export async function linkGlobalBinaries(targetDir, {
   runner = runCommand,
-  commandFinder = findCommandOnPath
+  commandFinder = findCommandOnPath,
+  prefixReader = readNpmGlobalPrefix,
+  legacyLinkCleaner = removeDanglingLegacyLinks
 } = {}) {
   // Best effort: drop the pre-rename global package so its `logwork` bin does
   // not block linking this one. A no-op when it is not installed.
@@ -253,6 +353,10 @@ export async function linkGlobalBinaries(targetDir, {
     cwd: targetDir,
     stdio: 'ignore'
   }).catch(() => {});
+  await Promise.resolve()
+    .then(() => prefixReader(targetDir))
+    .then((prefix) => legacyLinkCleaner(prefix))
+    .catch(() => []);
 
   try {
     await runner('npm', ['link'], {

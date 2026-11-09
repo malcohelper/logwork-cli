@@ -107,7 +107,7 @@ Previews expire after 1 hour. They are also lost when the server restarts.
 
 ### Tool Name Changes From logwork-helper
 
-| logwork-helper (before 0.3.0) | logwork-cli |
+| logwork-helper (0.2.x and earlier) | logwork-cli |
 |---|---|
 | `preview_logwork_batch`, `apply_logwork_batch` | `log_work` |
 | `query_logwork` | `get_logwork` |

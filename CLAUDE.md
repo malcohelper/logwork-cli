@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`logwork-cli` (npm, repo `malcohelper/logwork-cli`, Node 22+, ESM `.mjs`, macOS and Windows) logs work hours to Resource Optimiser (RO) and self-hosted Jira. The package was renamed from `logwork-helper` in 0.3.0. The `logwork-helper` command no longer exists.
+`logwork-cli` (npm, repo `malcohelper/logwork-cli`, Node 22+, ESM `.mjs`, macOS and Windows) logs work hours to Resource Optimiser (RO) and self-hosted Jira. The package was renamed from `logwork-helper` in 1.0.0. The `logwork-helper` command no longer exists.
 
 ## Layout
 
@@ -94,7 +94,7 @@ Rules:
 - Every tool sets `title`, `description`, `annotations` (the `READ_ONLY`, `WRITE`, `DESTRUCTIVE` and `LOCAL_*` constants) and a `.describe()` on every input param. `test/mcp-smoke.test.mjs` enforces this and the exact tool list, so update both when adding a tool.
 - `SERVER_INSTRUCTIONS` (exported from `lib/mcp-server.mjs`) is sent as MCP `instructions`. Keep it in sync with the line format and approval rules.
 - Writes are **two calls to the same tool**.
-  - Without `confirm`, the tool previews and caches the result by `batchId` or `previewId`. The TTL is 1h and the cache is fingerprint-checked. RO edit, resubmit and delete previews are cached with `setCachedRoEditPreview`.
+  - Without `confirm`, the tool previews and caches the result by `batchId` or `previewId` (TTL 1h). Every input that changes what gets written must be part of that id (see `createBatchId`, the `defaultWorklogTask` / `typeOfWork` suffixes, the resubmit hash). RO edit, resubmit and delete previews are cached with `setCachedRoEditPreview`; their apply re-reads the entry and refuses when its revision fingerprint changed.
   - With the id and `confirm: true`, the tool consumes the cached preview and applies it.
   - Apply calls must reject content fields (`assertApplyOnly`), and preview calls must have their required inputs (`requirePreviewInput`).
   - Do not split tools back into `preview_*` / `apply_*` pairs.
@@ -115,7 +115,8 @@ Rules:
   - `lib/legacy-migration.mjs` copies state files once from `~/.logwork-helper`, renaming `.logwork-helper.json` to `.logwork.json`. It writes the marker `.migrated-from-logwork-helper`, never overwrites existing files, and is skipped when a custom home is set.
   - `credential-store.mjs#withLegacyService` reads the old `logwork-helper` service on a miss and copies the value forward. `delete` clears both services.
   - `reminder-scheduler.mjs` removes the legacy launchd label and Windows task whenever it installs or removes a schedule.
-- Never log tokens, put them in argv, or write them to state files (`lib/auth-redaction.mjs`).
+- Never log tokens, put them in argv, or write them to state files (`lib/auth-redaction.mjs`). The macOS Keychain write goes through `security -i` on stdin for this reason.
+- Start npm with `lib/npm-command.mjs#npmInvocation`; plain `spawn('npm')` fails on Windows.
 
 ## Other notes
 

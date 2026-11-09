@@ -4,6 +4,32 @@ Each version needs a `## [x.y.z]` section here before its version bump is
 pushed to `main`. The release workflow uses that section as the GitHub Release
 description.
 
+## [1.1.1] - 2026-11-09
+
+### Fixed
+- **Security (release workflow):** only a CI run for a push to this repo's `main` can publish. Previously a fork pull request from a branch named `main` could reach the publish job. Workflow values now go through `env:` instead of being inlined in scripts, and the checkout no longer keeps credentials.
+- **Security (macOS Keychain):** sessions and Jira tokens are written through stdin (`security -i`) and never appear in process arguments.
+- **Windows:** `logwork setup`, `logwork update install` and `logwork release doctor` failed to start npm (ENOENT / EINVAL). npm now runs through its own `npm-cli.js`.
+- **Setup:** copies only the packaged files into `~/.logwork-cli`, so a git checkout's `.env`, tests or repo `.logwork.json` never land in the state directory. A lockfile left by an older install is removed so `npm ci` does not fail after a dependency change.
+- **Edit by replace:** a timeout on the create or delete call no longer loses or duplicates the entry. The day is re-read: a replacement that RO saved is used, and the replacement is rolled back only when the original is confirmed to still exist.
+- **log_work:**
+  - When an entry fails partway, the error lists the entries already written so the batch is not applied twice.
+  - Hours above 24 per entry or per day, and a heading whose weekday does not match its date, are rejected at preview.
+  - A `typeOfWork` override now changes the `batchId` and is shown in the preview.
+  - A confirm that is missing `allowUnbooked` keeps the preview so the same `batchId` can be retried.
+- **resubmit_entry:** the preview id covers every field sent, so two previews of one entry no longer overwrite each other. The summary shows the hours, type, description and note changes. Hours are capped at 24.
+- **delete_entry / resubmit_entry:** refuse Jira-created entries, other users' entries and locked days, like `edit_entry`. Apply also re-checks the date, description and type of work.
+- **draft_from_commits / logwork commits:**
+  - Commits are matched on the author date, so rebased or amended commits stay on the day they were written.
+  - The author match is exact, so `me@x.com` no longer picks up `jime@x.com`.
+  - A repo reached through two paths (a subfolder or a worktree) is counted once.
+  - Standards such as `UTF-8` and `ISO-8601` are no longer read as ticket keys.
+  - Commits on a detached HEAD are included.
+  - An RO login error returns `authRequired` instead of assuming 8h days.
+  - Each day lists the remaining hours per project, and `status` is `no_hours` when nothing can be logged.
+- **Setup:** removes broken global links left by a `logwork-helper` install whose `~/.logwork-helper` folder was deleted. Those links made `npm install -g logwork-cli` and `npm link` fail with `EEXIST`.
+- **Docs:** upgrading from `logwork-helper` needs `npm uninstall -g logwork-helper` first, because both packages own the `logwork` command.
+
 ## [1.1.0] - 2026-11-07
 
 ### Summary

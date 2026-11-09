@@ -30,16 +30,26 @@ logwork setup
 
 ## Upgrading from logwork-helper
 
-The package was renamed from `logwork-helper` to `logwork-cli`, and the `logwork-helper` command no longer exists. To upgrade:
+The package was renamed from `logwork-helper` to `logwork-cli`, and the `logwork-helper` command no longer exists. Both packages install a `logwork` command, so remove the old one first (otherwise npm stops with `EEXIST`):
 
 ```bash
+npm uninstall -g logwork-helper
 npm install -g logwork-cli
 logwork setup
 ```
 
 Most of the move is automatic:
 
-- **Old global package:** `logwork setup` removes the global `logwork-helper` package, so its `logwork` command does not conflict with the new one.
+- **Old global package:** if it is still installed, `logwork setup` removes the global `logwork-helper` package before linking. You can also run `npx logwork-cli@latest setup` without uninstalling first.
+- **`EEXIST ... bin/logwork` even after uninstalling:** the old package was linked from `~/.logwork-helper`. If that folder was deleted first, `npm uninstall` cannot remove its links. Remove the broken links, then install again:
+
+  ```bash
+  P="$(npm prefix -g)"
+  rm -f "$P/bin/logwork" "$P"/bin/logwork-helper* "$P/lib/node_modules/logwork-helper"
+  npm install -g logwork-cli && logwork setup
+  ```
+
+  `npx logwork-cli@latest setup` also removes those broken links (macOS).
 - **Local state:** on the first run, settings, project mappings, drafts, apply history and the reminder config are copied from `~/.logwork-helper` to `~/.logwork-cli`. The old directory is left in place.
 - **Login sessions:** your RO and Jira sessions are copied from the old Keychain / Credential Manager entry (`logwork-helper`) to the new one (`logwork-cli`), so you do not need to log in again.
 - **Repo mappings:** a repo that has `.logwork-helper.json` keeps using it until a `.logwork.json` exists.

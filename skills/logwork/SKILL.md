@@ -14,7 +14,8 @@ Goal: every logged line is backed by real work (the user's commits or what the u
 3. **Check the worklog tasks.** For each project involved, call `list_tasks(projectId)`. Keep the suggested task when it exists in that catalog; otherwise pick the catalog task whose description matches the work.
 4. **Write the descriptions.** One line per piece of work: what was done and the outcome, with ticket keys, in English, under about 200 characters, no `|`. Rewrite vague commit subjects ("wip", "fix", "update"); use `get_jira_issue` to read the ticket when the subject alone is unclear.
 5. **Set the hours.**
-   - Stay within the remaining booked hours per day and project unless the user says otherwise.
+   - Stay within the remaining booked hours per day and project unless the user says otherwise. The draft splits the day's total; use each day's `remainingByProject` to move hours to the project the work belongs to.
+   - If `draft_from_commits` returns `authRequired`, call `login` first; do not guess hours without RO.
    - Use 0.5h steps.
    - Do not log weekends or days without a booking unless the user asks.
    - Work without commits (meetings, reviews, support) only comes from the user; ask, then log it as `Other Activities` or `Code Review & Refactoring`.

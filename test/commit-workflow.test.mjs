@@ -4,11 +4,13 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createAuthRequiredError } from '../lib/auth-errors.mjs';
 import {
   allocateHours,
   buildDescription,
   classifyCommit,
   draftLogworkFromCommits,
+  extractTickets,
   formatDayHeading,
   groupCommits,
   parseGitLog,
@@ -81,14 +83,19 @@ test('RO remaining time is summed per project so over-logging does not hide gaps
       bookedHours: 10.4,
       loggedHours: 9.5,
       projects: [
-        { bookedHours: 0, loggedHours: 1.5 },
-        { bookedHours: 2.4, loggedHours: 0 },
-        { bookedHours: 4, loggedHours: 4 },
-        { bookedHours: 4, loggedHours: 4 }
+        { projectName: 'Presale', bookedHours: 0, loggedHours: 1.5 },
+        { projectName: 'FCS', bookedHours: 2.4, loggedHours: 0 },
+        { projectName: 'Portal', bookedHours: 4, loggedHours: 4 },
+        { projectName: 'Hosting', bookedHours: 4, loggedHours: 4 }
       ]
     }]
   });
-  assert.deepEqual(byDay.get('2026-11-06'), { bookedHours: 10.4, loggedHours: 9.5, remainingHours: 2.4 });
+  assert.deepEqual(byDay.get('2026-11-06'), {
+    bookedHours: 10.4,
+    loggedHours: 9.5,
+    remainingHours: 2.4,
+    remainingByProject: [{ projectName: 'FCS', remainingHours: 2.4 }]
+  });
   assert.equal(formatDayHeading('2026-11-06'), 'Friday, 06 Nov 2026');
 });
 
@@ -162,7 +169,7 @@ test('draftLogworkFromCommits falls back to an 8h weekday and reports repo error
     to: '2026-11-06',
     repos: [dir, missing],
     queryRo: async () => {
-      throw new Error('Resource Optimiser authentication required.');
+      throw new Error('connect ETIMEDOUT');
     }
   });
   assert.equal(result.bookings, 'unavailable');
@@ -170,4 +177,72 @@ test('draftLogworkFromCommits falls back to an 8h weekday and reports repo error
   assert.equal(result.days[0].groups[0].hours, 8);
   assert.ok(result.repos.find((repo) => repo.error));
   assert.match(result.summary, /RO bookings unavailable/);
+});
+
+test('ticket keys skip standards and versions, and long ticket lists are capped', () => {
+  assert.deepEqual(extractTickets('Fix UTF-8 handling in ISO-8601 parser for SHA-256 (SCB-12, CVE-2024-1234)'), ['SCB-12']);
+  const many = Array.from({ length: 30 }, (_, index) => `ABC-${index + 1}`);
+  const description = buildDescription({ repoName: 'app', tickets: many, subjects: ['Fix many bugs'] });
+  assert.ok(description.length <= 240, `length ${description.length}`);
+  assert.match(description, /^Fix many bugs \(ABC-1, ABC-2, ABC-3, ABC-4 \+26 more\)$/);
+  assert.equal(
+    buildDescription({ repoName: 'app', tickets: ['SCB-1'], subjects: ['Fix UTF-8 parsing SCB-1'] }),
+    'Fix UTF-8 parsing (SCB-1)'
+  );
+});
+
+test('author match is exact, so a similar email is not my work', async () => {
+  const { dir, commit } = makeRepo();
+  commit('a.txt', 'feat: mine', '2026-11-06T09:00:00');
+  commit('b.txt', 'feat: jim work', '2026-11-06T10:00:00', 'Jim <jime@example.com>');
+  commit('c.txt', 'feat: dotted', '2026-11-06T11:00:00', 'Dot <meXexample.com@other.org>');
+  const result = await draftLogworkFromCommits({ from: '2026-11-06', to: '2026-11-07', repos: [dir], useBookings: false });
+  assert.equal(result.commitCount, 1);
+  assert.match(result.draftText, /\| mine$/m);
+});
+
+test('a rebased commit stays on its author day, and a repo given twice counts once', async () => {
+  const { dir, commit } = makeRepo();
+  commit('a.txt', 'feat: base', '2026-11-01T09:00:00');
+  // Authored Monday, committed (rebased) Wednesday.
+  writeFileSync(join(dir, 'r.txt'), 'rebased');
+  git(dir, ['add', 'r.txt']);
+  git(dir, ['commit', '-q', '-m', 'fix: rebased work (SAP-1)', '--date=2026-11-02T10:00:00'], { GIT_COMMITTER_DATE: '2026-11-04T10:00:00' });
+  git(dir, ['worktree', 'add', '-q', join(dir, '..', `${dir.split(/[\\/]/).pop()}-wt`), '-b', 'wt']);
+
+  const monday = await draftLogworkFromCommits({
+    from: '2026-11-02',
+    to: '2026-11-03',
+    repos: [dir, join(dir, '.'), `${dir}-wt`],
+    useBookings: false
+  });
+  assert.equal(monday.commitCount, 1);
+  assert.equal(monday.repos.filter((repo) => !repo.error).length, 2, 'the worktree is listed but its commits are not counted again');
+  assert.equal(monday.days[0].date, '2026-11-02');
+  assert.equal(monday.days[0].groups[0].hours, 8);
+
+  const wednesday = await draftLogworkFromCommits({ from: '2026-11-04', to: '2026-11-05', repos: [dir], useBookings: false });
+  assert.equal(wednesday.status, 'no_commits');
+});
+
+test('an RO login error is raised instead of assuming an 8h day', async () => {
+  const { dir, commit } = makeRepo();
+  commit('a.txt', 'feat: thing', '2026-11-05T10:00:00');
+  await assert.rejects(
+    draftLogworkFromCommits({
+      from: '2026-11-05',
+      to: '2026-11-06',
+      repos: [dir],
+      queryRo: async () => { throw createAuthRequiredError(); }
+    }),
+    (error) => error.code === 'AUTH_REQUIRED'
+  );
+});
+
+test('status is no_hours when commits exist but no day has room', async () => {
+  const { dir, commit } = makeRepo();
+  commit('a.txt', 'feat: weekend', '2026-11-07T10:00:00');
+  const result = await draftLogworkFromCommits({ from: '2026-11-07', to: '2026-11-08', repos: [dir], useBookings: false });
+  assert.equal(result.status, 'no_hours');
+  assert.equal(result.draftText, '');
 });

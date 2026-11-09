@@ -22,7 +22,15 @@ concurrency:
 
 jobs:
   release:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # Only a CI run for a push to this repo's main branch may release. The
+    # workflow_run branch filter alone also matches a fork's pull request whose
+    # branch happens to be called main, and this job holds the npm token.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: macos-latest
     steps:
       - name: Check out the tested commit
@@ -30,6 +38,7 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -43,6 +52,14 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           NAME=$(node -p "require('./package.json').name")
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "Unexpected version: $VERSION" >&2
+            exit 1
+          fi
+          if [ "$NAME" != "logwork-cli" ]; then
+            echo "Unexpected package name: $NAME" >&2
+            exit 1
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
@@ -58,15 +75,19 @@ jobs:
 
       - name: Nothing to release
         if: steps.version.outputs.tagged == 'true' && steps.version.outputs.published == 'true'
-        run: echo "v${{ steps.version.outputs.version }} is already tagged and published."
+        run: echo "v$VERSION is already tagged and published."
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
 
       - name: Extract release notes
         if: steps.version.outputs.tagged == 'false' || steps.version.outputs.published == 'false'
-        run: node scripts/release-notes.mjs "${{ steps.version.outputs.version }}" > "$RUNNER_TEMP/release-notes.md"
+        run: node scripts/release-notes.mjs "$VERSION" > "$RUNNER_TEMP/release-notes.md"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
 
       - name: Install dependencies
         if: steps.version.outputs.published == 'false'
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Publish to npm
         if: steps.version.outputs.published == 'false'
@@ -77,10 +98,13 @@ jobs:
       - name: Create tag and GitHub Release
         if: steps.version.outputs.tagged == 'false'
         run: |
-          gh release create "v${{ steps.version.outputs.version }}" \
-            --target "${{ github.event.workflow_run.head_sha || github.sha }}" \
-            --title "v${{ steps.version.outputs.version }}" \
+          gh release create "v$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$TARGET_SHA" \
+            --title "v$VERSION" \
             --notes-file "$RUNNER_TEMP/release-notes.md" \
             --latest
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}

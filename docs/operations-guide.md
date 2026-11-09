@@ -19,6 +19,8 @@ npm install -g logwork-cli
 logwork setup
 ```
 
+Upgrading from `logwork-helper`: run `npm uninstall -g logwork-helper` first. Both packages provide a `logwork` command, and npm refuses to overwrite it (`EEXIST`). If `~/.logwork-helper` was already deleted, the uninstall leaves broken links behind; remove them with `P="$(npm prefix -g)"; rm -f "$P/bin/logwork" "$P"/bin/logwork-helper* "$P/lib/node_modules/logwork-helper"`, or run `npx logwork-cli@latest setup`, which removes them.
+
 Authenticate each target from Terminal:
 
 ```bash
