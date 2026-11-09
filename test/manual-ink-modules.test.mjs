@@ -19,6 +19,7 @@ import {
   DraftPicker,
   McpClientPicker,
   ProjectPicker,
+  SelectPrompt,
   TargetPicker,
   TaskEditPicker,
   TaskRemovePicker
@@ -69,6 +70,7 @@ function interactionProps(overrides = {}) {
       authPrompt: null,
       authActive: false,
       pendingConfirm: null,
+      pendingSelect: null,
       wizard: null,
       inputValue: '',
       selectedIndex: 0,
@@ -80,6 +82,8 @@ function interactionProps(overrides = {}) {
       resolveAuthPrompt: noop,
       rejectAuthPrompt: noop,
       resolveConfirm: noop,
+      changeSelect: record('changeSelect'),
+      resolveSelect: record('resolveSelect'),
       exit: record('exit'),
       executeCommand: record('executeCommand'),
       submitInput: noop,
@@ -204,4 +208,23 @@ test('Escape in the command input exits, cancels the session or leaves task repl
   assert.equal(replacing.calls[0][0], 'setWizard');
   assert.deepEqual(replacing.calls[0][1]({ step: 'edit_task_replace', editIndex: 1 }), { step: 'edit_tasks', editIndex: 1 });
   assert.deepEqual(replacing.calls[1], ['restoreTaskEditorPanel']);
+});
+
+test('a pending select renders the select prompt over the wizard', () => {
+  const { props, calls } = interactionProps({
+    pendingSelect: { message: 'Which RO project?', options: [{ value: 'p', label: 'FCS' }], selectedIndex: 0 },
+    wizard: { step: 'select_date', dateOptions: [], dateIndex: 0 }
+  });
+  const element = renderManualInteraction(props);
+  assert.equal(element.type, SelectPrompt);
+  assert.equal(element.props.message, 'Which RO project?');
+  element.props.onChange(1);
+  element.props.onResolve('p');
+  assert.deepEqual(calls, [['changeSelect', 1], ['resolveSelect', 'p']]);
+
+  const confirmFirst = renderManualInteraction(interactionProps({
+    pendingConfirm: { message: 'Apply?' },
+    pendingSelect: { message: 'Which?', options: [] }
+  }).props);
+  assert.equal(confirmFirst.type, ConfirmDialog);
 });

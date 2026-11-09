@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createAuthRequiredError } from '../lib/auth-errors.mjs';
@@ -14,7 +14,9 @@ import {
   formatDayHeading,
   groupCommits,
   parseGitLog,
-  remainingHoursByDay
+  readRemoteUrl,
+  remainingHoursByDay,
+  suggestProjectsForRepo
 } from '../lib/commit-workflow.mjs';
 import { parseWeeklyLogText } from '../lib/batch-parser.mjs';
 
@@ -106,8 +108,12 @@ function git(cwd, args, env = {}) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, ...env } });
 }
 
-function makeRepo() {
-  const dir = mkdtempSync(join(tmpdir(), 'logwork-commits-'));
+function makeRepo(name = '') {
+  let dir = mkdtempSync(join(tmpdir(), 'logwork-commits-'));
+  if (name) {
+    dir = join(dir, name);
+    mkdirSync(dir);
+  }
   git(dir, ['init', '-q', '-b', 'main']);
   git(dir, ['config', 'user.email', 'me@example.com']);
   git(dir, ['config', 'user.name', 'Me']);
@@ -352,7 +358,7 @@ test('draft allocates each project its own remaining hours and returns projectOv
 
   // git prints C:/... on Windows; drafts store the resolved form (C:\...).
   assert.deepEqual(result.unmappedRepos, [resolve(repoRoot(sharedRepo.dir))]);
-  assert.match(result.summary, /offer map_project with repos/);
+  assert.match(result.summary, /agents call map_project with projectName and repos/);
 });
 
 test('a repo mapped to a project with no booking that day gets 0h', async () => {
@@ -392,4 +398,153 @@ test('without RO the draft keeps the standard day split but still names mapped p
   assert.equal(day.groups.reduce((sum, group) => sum + group.hours, 0), 8);
   assert.ok(day.groups.every((group) => group.project?.source === 'repo_mapping'));
   assert.deepEqual(Object.values(result.projectOverrides), [101, 101]);
+});
+
+const FCS = { projectMemberId: 501, projectId: 51, projectName: 'GKE Fair Chem System (FCS)' };
+const PORTAL = { projectMemberId: 502, projectId: 52, projectName: 'Customer Portal' };
+
+// Bookings for the draft period (includeEntries: false) and the 30-day RO
+// history (includeEntries: true) both come from queryRo.
+function roWithHistory({ history = [], historyError = null } = {}) {
+  const calls = [];
+  const queryRo = async (args) => {
+    calls.push(args);
+    if (!args.includeEntries) {
+      return { days: [{ date: '2026-11-05', bookedHours: 8, loggedHours: 0, projects: [{ ...FCS, bookedHours: 4, loggedHours: 0 }, { ...PORTAL, bookedHours: 4, loggedHours: 0 }] }] };
+    }
+    if (historyError) {
+      throw historyError;
+    }
+    return { entries: history, days: [] };
+  };
+  queryRo.calls = calls;
+  return queryRo;
+}
+
+test('the draft suggests projects for unmapped repos from ticket history, name and remote', async () => {
+  const fcsRepo = makeRepo('fcs-web');
+  fcsRepo.commit('a.txt', 'feat: hazard sheet export', '2026-11-05T09:00:00');
+  const portalRepo = makeRepo('shop-ui');
+  portalRepo.commit('b.txt', 'feat: checkout coupon (CP-12)', '2026-11-05T10:00:00');
+  git(portalRepo.dir, ['remote', 'add', 'origin', 'git@github.com:acme/shop-ui.git']);
+  const queryRo = roWithHistory({
+    history: [{ date: '2026-11-03', ...PORTAL, taskName: 'Feature Development', description: 'Checkout (CP-12)' }]
+  });
+  let membershipCalls = 0;
+
+  const result = await draftLogworkFromCommits({
+    from: '2026-11-05',
+    to: '2026-11-06',
+    today: '2026-11-09',
+    repos: [fcsRepo.dir, portalRepo.dir],
+    loadConfig: async () => ({ projectMappings: [] }),
+    queryRo,
+    fetchProjects: async () => {
+      membershipCalls += 1;
+      return [PORTAL, FCS, { projectMemberId: 999, projectId: 99, projectName: 'Internal Training' }];
+    }
+  });
+
+  const fcsRoot = resolve(repoRoot(fcsRepo.dir));
+  const portalRoot = resolve(repoRoot(portalRepo.dir));
+  assert.deepEqual(result.unmappedRepos, [fcsRoot, portalRoot]);
+  assert.equal(membershipCalls, 1);
+  assert.deepEqual(queryRo.calls[1], { from: '2026-10-10', to: '2026-11-10', includeEntries: true, cwd: process.cwd() });
+  assert.equal(queryRo.calls.length, 2, 'history is read once per draft');
+
+  assert.deepEqual(result.repoSuggestions[fcsRoot][0], {
+    projectName: FCS.projectName,
+    projectMemberId: 501,
+    projectId: 51,
+    score: 30,
+    reasons: ['repo name matches FCS']
+  });
+  assert.equal(result.repoSuggestions[portalRoot][0].projectName, 'Customer Portal');
+  assert.deepEqual(result.repoSuggestions[portalRoot][0].reasons, ['ticket CP-12 was logged to this project on 2026-11-03']);
+  // Booked projects first, then the other memberships.
+  assert.deepEqual(result.projectCandidates.map((project) => project.projectName), [FCS.projectName, 'Customer Portal', 'Internal Training']);
+  assert.match(result.summary, /- .*fcs-web: likely GKE Fair Chem System \(FCS\) \(repo name matches FCS\)/);
+  assert.match(result.summary, /- .*shop-ui: likely Customer Portal \(ticket CP-12 was logged to this project on 2026-11-03\)/);
+  assert.equal(await readRemoteUrl(portalRepo.dir), 'git@github.com:acme/shop-ui.git');
+  assert.equal(await readRemoteUrl(fcsRepo.dir), '');
+});
+
+test('a failing RO history or membership read only drops that evidence', async () => {
+  const { dir, commit } = makeRepo('fcs-api');
+  commit('a.txt', 'feat: ingest (CP-12)', '2026-11-05T09:00:00');
+  const result = await draftLogworkFromCommits({
+    from: '2026-11-05',
+    to: '2026-11-06',
+    today: '2026-11-09',
+    repos: [dir],
+    loadConfig: async () => ({ projectMappings: [] }),
+    queryRo: roWithHistory({ historyError: new Error('RO 500') }),
+    fetchProjects: async () => { throw new Error('memberships 502'); }
+  });
+  const root = resolve(repoRoot(dir));
+  assert.equal(result.status, 'draft');
+  assert.deepEqual(result.repoSuggestions[root].map((item) => item.projectName), [FCS.projectName]);
+  assert.deepEqual(result.projectCandidates.map((project) => project.projectName), [FCS.projectName, 'Customer Portal']);
+});
+
+test('an RO auth error while reading the history still reaches the caller', async () => {
+  const { dir, commit } = makeRepo();
+  commit('a.txt', 'feat: ingest', '2026-11-05T09:00:00');
+  await assert.rejects(
+    draftLogworkFromCommits({
+      from: '2026-11-05',
+      to: '2026-11-06',
+      repos: [dir],
+      loadConfig: async () => ({ projectMappings: [] }),
+      queryRo: roWithHistory({ historyError: createAuthRequiredError() }),
+      fetchProjects: async () => []
+    }),
+    (error) => error.code === 'AUTH_REQUIRED'
+  );
+});
+
+test('without RO bookings no suggestions are read', async () => {
+  const { dir, commit } = makeRepo('fcs-web');
+  commit('a.txt', 'feat: ingest', '2026-11-05T09:00:00');
+  const result = await draftLogworkFromCommits({
+    from: '2026-11-05',
+    to: '2026-11-06',
+    repos: [dir],
+    useBookings: false,
+    loadConfig: async () => ({ projectMappings: [] }),
+    fetchProjects: async () => { throw new Error('must not be called'); }
+  });
+  assert.equal(result.unmappedRepos.length, 1);
+  assert.deepEqual(result.repoSuggestions, {});
+  assert.deepEqual(result.projectCandidates, []);
+  assert.match(result.summary, /fcs-web: no suggestion; ask which project it belongs to/);
+});
+
+test('suggestProjectsForRepo ranks member projects for one repo from its recent commits', async () => {
+  const { dir, commit } = makeRepo('misc-tools');
+  commit('a.txt', 'fix: retry upload (CP-7)', '2026-11-05T09:00:00');
+  const calls = [];
+  const result = await suggestProjectsForRepo({
+    repo: dir,
+    projects: [FCS, PORTAL],
+    today: '2026-11-09',
+    queryRo: async (args) => {
+      calls.push(args);
+      return {
+        entries: [{ date: '2026-11-04', ...PORTAL, taskName: 'Bug Fix', description: 'upload (CP-7)' }],
+        days: [{ date: '2026-11-05', projects: [{ ...FCS, bookedHours: 8 }] }]
+      };
+    }
+  });
+  assert.equal(result.repoRoot, resolve(repoRoot(dir)));
+  assert.deepEqual(calls, [{ from: '2026-10-10', to: '2026-11-10', includeEntries: true, cwd: process.cwd() }]);
+  assert.deepEqual(result.suggestions.map((item) => [item.projectName, item.reasons]), [
+    ['Customer Portal', ['ticket CP-7 was logged to this project on 2026-11-04']],
+    [FCS.projectName, ["the only project booked on this repo's commit days (2026-11-05)"]]
+  ]);
+  assert.deepEqual(result.candidates.map((project) => project.projectName), [FCS.projectName, 'Customer Portal']);
+
+  await assert.rejects(suggestProjectsForRepo({ repo: dir, projects: [], queryRo: async () => { throw createAuthRequiredError(); } }), (error) => error.code === 'AUTH_REQUIRED');
+  const offline = await suggestProjectsForRepo({ repo: dir, projects: [PORTAL], queryRo: async () => { throw new Error('ETIMEDOUT'); } });
+  assert.deepEqual(offline.suggestions, []);
 });

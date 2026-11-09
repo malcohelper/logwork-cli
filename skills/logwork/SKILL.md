@@ -19,7 +19,12 @@ Goal: every logged line is backed by real work (the user's commits or what the u
    - Use 0.5h steps.
    - Do not log weekends or days without a booking unless the user asks.
    - Work without commits (meetings, reviews, support) only comes from the user; ask, then log it as `Other Activities` or `Code Review & Refactoring`.
-6. **Resolve projects.** The draft's `projectOverrides` already name the project of every resolved line. For `unmappedRepos` (lines with no project), ask the user which RO project the repo belongs to and offer `map_project` with `repos` (and `tickets` if useful), so later drafts resolve it; then run `draft_from_commits` again. A line `log_work` still cannot resolve: ask the user and add its id to `projectOverrides`.
+6. **Resolve projects.** The draft's `projectOverrides` already name the project of every resolved line. For each repo in `unmappedRepos` (lines with no project):
+   - Take the top entry of `repoSuggestions[repo]` (ranked by ticket history, repo/remote name and single booked project; `reasons` say why).
+   - Ask one short question per repo, by project name: "Is `<repo name>` part of **<projectName>**? (<first reason>)". With no suggestion, ask which project it belongs to and offer names from `projectCandidates`.
+   - On a yes (or the user's own pick), call `map_project` with `projectName` (or that suggestion's `projectMemberId`), `repos: [repo]` and `confirm: true`. Never ask the user for ids.
+   - Then run `draft_from_commits` again so those lines get their project and hours.
+   A line `log_work` still cannot resolve: ask the user and add its id to `projectOverrides`.
 7. **Get approval, then write.**
    - Show the final block to the user.
    - On approval, call `log_work(text, projectOverrides)` and show its preview summary. Pass `projectOverrides` from the draft unchanged when `draftText` is unchanged. Entry ids are `<date>-<NN>` with NN counting lines through the whole text, so if you add, remove or reorder lines, renumber the overrides to match.

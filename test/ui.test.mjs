@@ -4,12 +4,16 @@ import {
   askHours,
   chooseMessageSource,
   chooseProject,
+  chooseRepoProject,
   chooseTask,
   confirmSubmit,
   formatSubmitConfirmation,
   handleCancel,
   projectSelectOptions,
+  repoProjectFromOption,
+  repoProjectSelectOptions,
   showError,
+  SKIP_REPO_PROJECT,
   showSuccess,
   taskSelectOptions,
   validateHours,
@@ -144,4 +148,48 @@ test('showSuccess and showError print through the prompts outro and cancel', () 
     { kind: 'cancel', message: 'boom' },
     { kind: 'cancel', message: 'plain' }
   ]);
+});
+
+const FCS = { projectMemberId: 501, projectId: 51, projectName: 'GKE Fair Chem System (FCS)' };
+const PORTAL = { projectMemberId: 502, projectId: 52, projectName: 'Customer Portal' };
+const HOSTING = { projectMemberId: 503, projectId: 53, projectName: 'Managed Hosting' };
+const FCS_SUGGESTION = { ...FCS, score: 30, reasons: ['repo name matches FCS'] };
+
+test('chooseRepoProject lists suggestions first, preselects the top one, then other projects and skip', async () => {
+  const prompts = fakePrompts(['project:0']);
+  const project = await chooseRepoProject({
+    repoName: 'fcs-web',
+    suggestions: [FCS_SUGGESTION],
+    candidates: [PORTAL, FCS, HOSTING]
+  }, { prompts });
+
+  assert.deepEqual(project, { projectName: FCS.projectName, projectMemberId: 501, projectId: 51 });
+  const [{ options }] = prompts.calls;
+  assert.equal(options.message, 'Which RO project does fcs-web belong to?');
+  assert.equal(options.initialValue, 'project:0');
+  assert.deepEqual(options.options, [
+    { value: 'project:0', label: FCS.projectName, hint: 'repo name matches FCS' },
+    { value: 'project:1', label: 'Customer Portal' },
+    { value: 'project:2', label: 'Managed Hosting' },
+    { value: SKIP_REPO_PROJECT, label: 'Skip for now' }
+  ]);
+});
+
+test('chooseRepoProject returns null on skip, cancel or with no projects', async () => {
+  const input = { repoName: 'x', suggestions: [], candidates: [PORTAL] };
+  assert.equal(await chooseRepoProject(input, { prompts: fakePrompts([SKIP_REPO_PROJECT]) }), null);
+  assert.equal(await chooseRepoProject(input, { prompts: fakePrompts([CANCEL]) }), null);
+  const unused = fakePrompts([]);
+  assert.equal(await chooseRepoProject({ repoName: 'x' }, { prompts: unused }), null);
+  assert.equal(unused.calls.length, 0);
+});
+
+test('repo project options resolve back to projects', () => {
+  const { items, options, initialValue } = repoProjectSelectOptions([], [PORTAL, HOSTING], { skipLabel: 'Cancel' });
+  assert.equal(initialValue, 'project:0');
+  assert.equal(options.at(-1).label, 'Cancel');
+  assert.equal(repoProjectFromOption(items, 'project:1').projectName, 'Managed Hosting');
+  assert.equal(repoProjectFromOption(items, SKIP_REPO_PROJECT), null);
+  assert.equal(repoProjectFromOption(items, 'project:9'), null);
+  assert.equal(repoProjectFromOption(items, null), null);
 });
