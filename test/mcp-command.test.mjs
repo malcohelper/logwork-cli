@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 // These tests run the client logic as macOS (platform: 'darwin'), which builds
 // paths with posix separators; build the expected paths the same way so the
 // suite also passes on Windows runners.
-import { posix } from 'node:path';
+import { join as nativeJoin, posix } from 'node:path';
 
 const { join } = posix;
 import { formatMcpInstallResults, parseMcpInstallArgs, prepareRuntimeLauncher, runMcpInstall, runMcpStatus } from '../commands/mcp.mjs';
@@ -21,17 +21,17 @@ const STALE = { mcpServers: { logwork: { command: '/gone/node', args: ['/x/logwo
 // A temp HOME (and Windows profile dirs), LOGWORK_HOME and an empty PATH, so
 // the CLI never sees the real IDE configs or a real `claude` CLI.
 async function isolatedEnv() {
-  const root = await mkdtemp(join(tmpdir(), 'logwork-mcp-cli-'));
-  const userHome = join(root, 'home');
-  const helperHome = join(root, 'helper');
-  const emptyPath = join(root, 'path');
+  const root = await mkdtemp(nativeJoin(tmpdir(), 'logwork-mcp-cli-'));
+  const userHome = nativeJoin(root, 'home');
+  const helperHome = nativeJoin(root, 'helper');
+  const emptyPath = nativeJoin(root, 'path');
   await mkdir(userHome);
   await mkdir(helperHome);
   await mkdir(emptyPath);
   return {
     userHome,
     helperHome,
-    env: { HOME: userHome, USERPROFILE: userHome, APPDATA: join(userHome, 'AppData', 'Roaming'), LOGWORK_HOME: helperHome, PATH: emptyPath }
+    env: { HOME: userHome, USERPROFILE: userHome, APPDATA: nativeJoin(userHome, 'AppData', 'Roaming'), LOGWORK_HOME: helperHome, PATH: emptyPath }
   };
 }
 
@@ -101,7 +101,8 @@ test('logwork mcp status and install --dry-run read a temp home and never write'
 
   const status = runCli(['mcp', 'status'], env);
   assert.equal(status.status, 0, status.stderr);
-  const launcher = process.platform === 'win32' ? helperHome : join(helperHome, 'bin', 'logwork-launch');
+  // The CLI runs as the real platform, so it prints native paths.
+  const launcher = process.platform === 'win32' ? helperHome : nativeJoin(helperHome, 'bin', 'logwork-launch');
   assert.ok(status.stdout.includes(launcher));
   assert.match(status.stdout, /- Cursor \(.*mcp\.json\): stale: runs Node at \/gone\/node, which no longer exists/);
   assert.match(status.stdout, /- Codex: not detected/);

@@ -428,7 +428,7 @@ test('doctor reports the launcher, a missing or stale node path with the fix, an
     assert.match(healthy.report, /recordedNodeStatus: ok/);
     assert.match(healthy.report, /launchNode: /);
     assert.match(healthy.report, /warnings: none/);
-    assert.match(healthy.report, /# MCP Clients\nnone detected/);
+    assert.match(healthy.report.replace(/\r\n/g, '\n'), /# MCP Clients\nnone detected/);
     assert.deepEqual(healthy.nodeIssues, []);
     assert.doesNotMatch(healthy.summary, /Warning/);
   });
