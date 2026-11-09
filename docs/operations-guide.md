@@ -188,6 +188,8 @@ MCP uses:
 
 Every entry must contain exactly one Jira issue key. RO is not written by this flow.
 
+In dry run (`LOGWORK_DRY_RUN=1`), the Jira apply still reads Jira for the duplicate check but sends no worklog. It returns `status: "dry_run"` with the request each entry would send, and the summary starts with `DRY RUN`. Apply history records it as `dry_run`, not as submitted.
+
 ### Both
 
 Use the combined terminal flow when the same date/tasks should be sent to both systems:

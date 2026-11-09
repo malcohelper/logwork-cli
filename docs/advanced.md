@@ -27,7 +27,7 @@ Supported overrides:
 ```text
 LOGWORK_PROFILE            (LOGWORK_HELPER_PROFILE still accepted)
 LOGWORK_HOME               (local state directory; LOGWORK_HELPER_HOME still accepted)
-LOGWORK_DRY_RUN=1          (RO writes return the request body instead of calling the API)
+LOGWORK_DRY_RUN=1          (RO and Jira writes return the request instead of calling the API)
 LOGWORK_API_BASE
 LOGWORK_LOGIN_URL
 LOGWORK_JIRA_BASE_URL
@@ -286,11 +286,20 @@ Inside `logwork`, use `/history`, `/history ro`, `/history jira`, or `/history b
 
 ## Dry Run
 
-`LOGWORK_DRY_RUN=1` makes Resource Optimiser writes return the request body instead of calling the API. Reads still hit the API.
+`LOGWORK_DRY_RUN=1` makes every Resource Optimiser and Jira write return the request (`{ dryRun: true, method, path, body }`) instead of calling the API. The request never contains the token or the `Authorization` header. Reads still hit the API: Jira issue lookup and the duplicate-worklog check still call Jira, and RO previews still read RO.
+
+What a dry run reports:
+
+- RO apply summaries start with `DRY RUN`; edit, resubmit and delete return `status: "dry_run"`.
+- Jira apply (`log_jira_work` with `confirm: true`, or the terminal UI `/apply`) returns `status: "dry_run"`, `dryRun: true`, one `dry_run` result per entry with its `request`, and a summary that starts with `DRY RUN (LOGWORK_DRY_RUN=1)`.
+- Apply history records a Jira dry run with status `dry_run` and `dryRun: true` entries. They are not counted as submitted.
+- The terminal UI status bar shows `DRY RUN`.
 
 ```bash
 LOGWORK_DRY_RUN=1 logwork quick -m "Dry run task"
 LOGWORK_DRY_RUN=1 logwork edit 304032 --desc "Dry run" --yes
+npm run dry-run                     # terminal UI, RO and Jira writes stubbed
+LOGWORK_DRY_RUN=1 logwork mcp       # MCP server, RO and Jira writes stubbed
 ```
 
 In Windows PowerShell:
