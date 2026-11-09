@@ -120,12 +120,13 @@ How the draft is built:
   | `chore` | Other Activities |
 
   Conventional prefixes are used first, then keywords in the subject.
-- **Hours:** each day's RO remaining time (booked − logged, per project) is split across the groups in 0.5h steps, weighted by commits and lines changed. Days without a booking get 0h. Without RO access, a weekday counts as 8h.
+- **Project:** a project mapping whose `repos` list holds the repo wins (`/map --repo . 5234` in the terminal UI, or the MCP tool `map_project` with `repos`). Otherwise ticket and keyword mappings and the day's booked projects pick it, the same way `log_work` does. Repos with no project are listed so you can map them.
+- **Hours:** each project's RO remaining time (booked − logged) is split across that project's groups in 0.5h steps, weighted by commits and lines changed, and never exceeds it. A project with no room left gets 0h. Groups without a project share the room of booked projects that no group claimed. Days without a booking get 0h. Without RO access, a weekday counts as 8h, split across all groups.
 
 Nothing is written. Paste the draft into `/logwork`, or let your AI agent use it.
 
 For agents:
-- **MCP tool `draft_from_commits`** returns the same draft as `draftText`.
+- **MCP tool `draft_from_commits`** returns the same draft as `draftText`, plus `projectOverrides` (preview entry id → `projectMemberId`) for every line with a project. The agent passes both to `log_work` unchanged. In the terminal UI, pasted lines are resolved again from mappings and bookings.
 - **MCP prompt `log_from_commits`** gives an agent the full procedure:
   1. find gaps with `get_logwork`;
   2. draft from commits;
@@ -289,7 +290,7 @@ In the terminal UI, `/logwork` opens a target picker. `/logwork ro` writes Resou
 - `/query this-week`
 - `/reconcile`
 - `/projects`
-- `/map SCB 5234`
+- `/map SCB 5234` (ticket prefix) or `/map --repo . 5234` (this git repo, for commit drafts)
 - `/history`
 - `/diagnostics`
 

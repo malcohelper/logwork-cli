@@ -2,12 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
 import {
   loadLocalConfig,
   configPath,
-  normalizeConfig
+  findRepoMapping,
+  normalizeConfig,
+  normalizeRepoPath,
+  normalizeRepos,
+  repoPathKey
 } from '../lib/logwork-config.mjs';
 import {
   helperHome,
@@ -65,6 +69,7 @@ test('upsertProjectMapping creates .logwork.json and preview can use it', async 
   );
 
   const preview = await previewLogworkBatch({
+    fetchDayEntries: async () => [],
     cwd,
     text: `Monday, 01 Jun 2026
 +2 Maintenance mode management (SCB-213)`.replace('++', '+'),
@@ -349,6 +354,98 @@ test('loadLocalConfig merges duplicate mappings across legacy, user, and project
       keywords: ['legacy', 'user', 'project']
     }
   ]);
+});
+
+test('repo paths are resolved, trimmed and compared case-insensitively only on Windows', () => {
+  assert.equal(normalizeRepoPath('/work/app/', 'darwin'), '/work/app');
+  assert.equal(normalizeRepoPath('/work/app/sub/../', 'linux'), '/work/app');
+  assert.equal(normalizeRepoPath('/', 'linux'), '/');
+  assert.equal(normalizeRepoPath('C:/Work/App\\', 'win32'), 'C:\\Work\\App');
+  assert.equal(normalizeRepoPath('C:\\', 'win32'), 'C:\\');
+  assert.equal(repoPathKey('C:\\Work\\App', 'win32'), repoPathKey('c:/work/app/', 'win32'));
+  assert.notEqual(repoPathKey('/Work/App', 'darwin'), repoPathKey('/work/app', 'darwin'));
+  assert.deepEqual(normalizeRepos(['C:\\Work\\App', 'c:/work/app/', 'D:\\Other', 7, ' '], 'win32'), ['C:\\Work\\App', 'D:\\Other']);
+
+  const mappings = [
+    { projectName: 'A', projectMemberId: 1, tickets: [], keywords: [], repos: ['C:\\Work\\App'] },
+    { projectName: 'B', projectMemberId: 2, tickets: ['B'], keywords: [] }
+  ];
+  assert.equal(findRepoMapping(mappings, 'c:/work/app', 'win32').projectName, 'A');
+  assert.equal(findRepoMapping(mappings, 'c:/work/app2', 'win32'), null);
+  assert.deepEqual(normalizeConfig({ projectMappings: [{ projectName: 'B', tickets: ['b'] }] }).projectMappings[0], {
+    projectName: 'B',
+    projectMemberId: undefined,
+    tickets: ['B'],
+    keywords: []
+  }, 'a mapping without repos keeps its old shape');
+});
+
+test('upsertProjectMapping merges repos like tickets and stores repo roots', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'logwork-helper-test-'));
+  const home = await useTempHelperHome();
+  const roots = new Map([
+    [resolve('/work/app/packages/web'), '/work/app'],
+    [resolve('/work/app'), '/work/app'],
+    [resolve('/work/api'), '/work/api']
+  ]);
+  const resolveRepoRoot = async (path) => {
+    if (!roots.has(path)) {
+      throw new Error('fatal: not a git repository');
+    }
+    return resolve(roots.get(path));
+  };
+
+  const first = await upsertProjectMapping({
+    cwd,
+    projectMemberId: 5234,
+    tickets: ['SCB'],
+    repos: ['/work/app/packages/web'],
+    confirm: true,
+    fetchProjects: async () => projects,
+    resolveRepoRoot
+  });
+  assert.deepEqual(first.mapping.repos, [resolve('/work/app')]);
+  assert.match(first.summary, /Repos: /);
+
+  const second = await upsertProjectMapping({
+    cwd,
+    projectMemberId: 5234,
+    repos: ['/work/app/', '/work/api'],
+    confirm: true,
+    fetchProjects: async () => projects,
+    resolveRepoRoot
+  });
+  assert.equal(second.status, 'updated');
+  assert.deepEqual(second.mapping.tickets, ['SCB']);
+  assert.deepEqual(second.mapping.repos, [resolve('/work/app'), resolve('/work/api')]);
+
+  const file = JSON.parse(await fs.readFile(join(home, '.logwork.json'), 'utf8'));
+  assert.deepEqual(file.projectMappings[0].repos, [resolve('/work/app'), resolve('/work/api')]);
+  const loaded = await loadLocalConfig(cwd);
+  assert.equal(findRepoMapping(loaded.projectMappings, resolve('/work/api')).projectMemberId, 5234);
+
+  const seen = [];
+  await upsertProjectMapping({
+    cwd,
+    projectMemberId: 5234,
+    repos: ['~/code/portal'],
+    confirm: true,
+    fetchProjects: async () => projects,
+    resolveRepoRoot: async (path) => {
+      seen.push(path);
+      return path;
+    }
+  });
+  assert.deepEqual(seen, [resolve(homedir(), 'code/portal')], '~ expands to the home folder');
+
+  await assert.rejects(
+    () => upsertProjectMapping({ cwd, projectMemberId: 5234, confirm: true, fetchProjects: async () => projects, resolveRepoRoot }),
+    /at least one ticket prefix or repo/
+  );
+  await assert.rejects(
+    () => upsertProjectMapping({ cwd, projectMemberId: 5234, repos: ['/nowhere'], confirm: true, fetchProjects: async () => projects, resolveRepoRoot }),
+    /is not a git repository/
+  );
 });
 
 async function useTempHelperHome({ preserveHome = false } = {}) {

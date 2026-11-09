@@ -1252,6 +1252,84 @@ test('manual apply submits approved preview and clears last preview', async () =
   assert.match(printed.join('\n'), /Verified totals/);
 });
 
+test('manual apply asks before submitting possible duplicates and passes allowDuplicates', async () => {
+  const duplicatePreview = () => readyPreview({
+    entries: [{
+      ...readyPreview().entries[0],
+      possibleDuplicate: { source: 'ro', logworkId: 900 }
+    }]
+  });
+
+  const printed = [];
+  const session = createManualSession();
+  session.previews.ro = duplicatePreview();
+  let applyCalled = false;
+  await executeManualCommand(parseManualCommand('/apply'), session, context({
+    workflows: { applyLogworkBatch: async () => { applyCalled = true; } },
+    prompts: confirmations([true, false]),
+    printed
+  }));
+  assert.equal(applyCalled, false);
+  assert.match(printed.at(-1), /possible duplicates were not approved\. Nothing was written/);
+
+  const session2 = createManualSession();
+  session2.previews.ro = duplicatePreview();
+  const asked = [];
+  let allowDuplicatesSeen;
+  await executeManualCommand(parseManualCommand('/apply'), session2, context({
+    workflows: {
+      applyLogworkBatch: async ({ allowDuplicates }) => {
+        allowDuplicatesSeen = allowDuplicates;
+        return { summary: 'Logwork submitted.' };
+      }
+    },
+    prompts: {
+      async confirm(message, initialValue) {
+        asked.push({ message, initialValue });
+        return true;
+      }
+    },
+    printed: []
+  }));
+  assert.equal(allowDuplicatesSeen, true);
+  assert.match(asked[1].message, /1 possible duplicate entries \(entry_1 matches RO logwork 900\)/);
+  assert.equal(asked[1].initialValue, false);
+});
+
+test('manual /map --repo maps a git repo to a project', async () => {
+  assert.deepEqual(parseManualCommand('/map --repo 5234'), {
+    type: 'map',
+    tickets: [],
+    repos: ['.'],
+    projectMemberId: '5234'
+  });
+  assert.deepEqual(parseManualCommand('/map --repo "/work/my repo" 5234'), {
+    type: 'map',
+    tickets: [],
+    repos: ['/work/my repo'],
+    projectMemberId: '5234'
+  });
+  assert.throws(() => parseManualCommand('/map --repo'), /Usage: \/map/);
+
+  const printed = [];
+  const asked = [];
+  await executeManualCommand(parseManualCommand('/map --repo . 5234'), createManualSession(), context({
+    cwd: '/work/app',
+    workflows: {
+      upsertProjectMapping: async (args) => {
+        assert.deepEqual(args.tickets, []);
+        assert.deepEqual(args.repos, ['.']);
+        assert.equal(args.cwd, '/work/app');
+        return { summary: 'Created project mapping.' };
+      }
+    },
+    prompts: { async confirm(message) { asked.push(message); return true; } },
+    printed
+  }));
+  assert.match(asked[0], /Map repo .*work.*app to projectMemberId 5234\?/);
+  assert.match(printed.at(-1), /Created project mapping/);
+});
+
 test('manual commands run API auth inline when workflow reports auth required', async () => {
   const printed = [];
   const session = createManualSession();

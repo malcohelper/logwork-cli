@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import {
+  assertDuplicatesAllowed,
   assertNoFinalProjectOverrides,
   consumeApprovedBatch,
   consumeApprovedJiraBatch,
@@ -93,7 +94,7 @@ test('MCP server lists logwork tools over stdio', async () => {
       assert.equal(tools[name].inputSchema.properties.confirm.type, 'boolean');
     }
 
-    assert.deepEqual(params('log_work'), ['allowUnbooked', 'batchId', 'confirm', 'defaultWorklogTask', 'projectOverrides', 'text', 'typeOfWork']);
+    assert.deepEqual(params('log_work'), ['allowDuplicates', 'allowUnbooked', 'batchId', 'confirm', 'defaultWorklogTask', 'projectOverrides', 'text', 'typeOfWork']);
     assert.match(tools.log_work.description, /Resource Optimiser only/);
     assert.match(tools.log_work.description, /Use log_jira_work for Jira/);
     assert.deepEqual(params('log_jira_work'), ['batchId', 'confirm', 'text']);
@@ -108,7 +109,7 @@ test('MCP server lists logwork tools over stdio', async () => {
     assert.deepEqual(tools.get_logwork.inputSchema.properties.period.enum, ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month']);
     assert.deepEqual(params('reconcile'), ['period']);
     assert.deepEqual(tools.get_history.inputSchema.properties.target.enum, ['ro', 'jira', 'both']);
-    assert.deepEqual(params('map_project'), ['confirm', 'keywords', 'projectMemberId', 'projectName', 'scope', 'tickets']);
+    assert.deepEqual(params('map_project'), ['confirm', 'keywords', 'projectMemberId', 'projectName', 'repos', 'scope', 'tickets']);
     assert.deepEqual(tools.map_project.inputSchema.properties.scope.enum, ['user', 'project']);
     assert.deepEqual(params('login'), ['target']);
     assert.deepEqual(tools.login.inputSchema.properties.target.enum, ['ro', 'jira']);
@@ -219,6 +220,27 @@ test('MCP preview cache clones previews and rejects mismatched approved batches'
     },
     now
   }), /Approved batch mismatch/);
+});
+
+test('MCP apply refuses possible duplicates before consuming the cached preview', () => {
+  const cache = new Map();
+  const now = 1_000;
+  const preview = createApprovedPreview();
+  preview.entries[0].possibleDuplicate = { source: 'ro', logworkId: 900, date: '2026-06-01', hours: 2 };
+  setCachedPreview(cache, preview, now);
+
+  const pending = resolveApprovedBatch({ cache, batchId: preview.batchId, now });
+  assert.throws(
+    () => assertDuplicatesAllowed(pending, false),
+    /Nothing was written\. 1 entry looks already logged: entry_1 .*RO logwork 900.*allowDuplicates: true/
+  );
+  assert.ok(getCachedPreview(cache, preview.batchId, now), 'the preview stays cached so the same batchId can be retried');
+
+  assert.doesNotThrow(() => assertDuplicatesAllowed(pending, true));
+  assert.doesNotThrow(() => assertDuplicatesAllowed(createApprovedPreview(), false));
+  const approved = consumeApprovedBatch({ cache, batchId: preview.batchId, now });
+  assert.equal(approved.entries[0].possibleDuplicate.logworkId, 900);
+  assert.equal(getCachedPreview(cache, preview.batchId, now), null);
 });
 
 test('MCP apply requires cached preview provenance', () => {

@@ -222,6 +222,7 @@ Useful commands inside the session:
 /projects
 /projects 5234
 /map SCB 5234
+/map --repo . 5234
 /history
 /diagnostics
 ```

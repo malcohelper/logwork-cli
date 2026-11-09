@@ -89,18 +89,18 @@ Previews expire after 1 hour. They are also lost when the server restarts.
 | Group | Tool | Kind | Purpose |
 |---|---|---|---|
 | Read | `get_logwork` | read-only | Booked vs logged RO hours by day and project, with entries (`logworkId`, worklog task, description, status). |
-| Read | `draft_from_commits` | read-only | Your git commits (all branches, your author) for a period in the given `repos`, grouped per day into draft lines with a suggested worklog task and hours that fill the RO remaining booked time. Returns `draftText` for `log_work`. |
+| Read | `draft_from_commits` | read-only | Your git commits (all branches, your author) for a period in the given `repos`, grouped per day into draft lines with a suggested worklog task, an RO project (repo mapping, else ticket/keyword mappings and bookings) and hours that fill each project's remaining booked time. Returns `draftText` and `projectOverrides` for `log_work`, and `unmappedRepos`. |
 | Read | `list_projects` | read-only | RO memberships (`projectMemberId`, `projectId`, `projectName`) and local mappings. |
 | Read | `list_tasks` | read-only | RO worklog task catalog for one `projectId`: id, name, type of work, and when to use each task. |
 | Read | `get_jira_issue` | read-only | Jira issue key, summary and status. |
 | Read | `reconcile` | read-only | Compare RO and Jira hours by day. Never writes. |
 | Read | `get_history` | read-only (local) | Local apply history. Contains no credentials. |
-| RO write | `log_work` | two-call write | Create new RO entries from a weekly block (worklog task + description). |
+| RO write | `log_work` | two-call write | Create new RO entries from a weekly block (worklog task + description). The preview flags possible duplicates of existing RO entries; apply refuses them without `allowDuplicates: true`. |
 | RO write | `edit_entry` | two-call, destructive | Change hours, worklog task, type of work or description of a submitted or approved entry. Apply replaces the entry. |
 | RO write | `resubmit_entry` | two-call write | Fix and resubmit a rejected entry (hours, type, description, note to PM). |
 | RO write | `delete_entry` | two-call, destructive | Delete a submitted or approved entry. |
 | Jira write | `log_jira_work` | two-call write | Create Jira worklogs. The description becomes the worklog comment. |
-| Config | `map_project` | local write, `confirm` | Map ticket prefixes or keywords to an RO project (`.logwork.json`). |
+| Config | `map_project` | local write, `confirm` | Map ticket prefixes, keywords or git repos (`repos`) to an RO project (`.logwork.json`). |
 | Config | `reminder` | `action`: status / enable / disable / test | Native OS reminder. Every action except `status` needs `confirm: true`. |
 | Config | `update` | `action`: check / install | npm self-update. `install` needs `confirm: true`. |
 | Auth | `login` | local | `target: "ro"` (default) opens or explains a terminal login. `target: "jira"` explains how to save a PAT. Never accepts credentials. |
@@ -189,9 +189,15 @@ Expected flow:
 
 1. `get_logwork` shows which days and projects still have booked hours to fill.
 2. `draft_from_commits` (with `repos` set to the workspace folders) groups your commits into draft lines with hours.
+   - Each line gets a project. A `map_project` mapping whose `repos` holds the repo comes first; then ticket/keyword mappings and that day's booked projects.
+   - Each project's remaining hours are split across its own lines and never exceeded. Lines without a project share the room of booked projects that no line claimed.
+   - It returns `draftText`, plus `projectOverrides` (preview entry id → `projectMemberId`) for each line with a project.
+   - It also returns `unmappedRepos`. For those, the assistant asks which project the repo belongs to and offers `map_project` with `repos`.
 3. `list_tasks` confirms the worklog task names for each project.
 4. The assistant rewrites vague descriptions, shows you the block and waits for approval.
-5. `log_work(text)` previews the entries, then `log_work(batchId, confirm: true)` applies them.
+5. `log_work(text, projectOverrides)` previews the entries, then `log_work(batchId, confirm: true)` applies them.
+   - Preview entry ids are `<date>-<NN>`, where NN counts entry lines through the whole text. The overrides match `draftText` as returned.
+   - If lines are added, removed or reordered, the assistant renumbers the overrides.
 
 
 
@@ -227,7 +233,9 @@ A suggestion is not an approved write. It still goes through the two-call write 
 2. Call `list_projects`, then `list_tasks` with the `projectId`, to pick valid worklog task names.
 3. Call `log_work` with `text`.
 4. Show the summary and ask for approval. The summary shows each line as `project - worklog task | description`, plus an approval checklist with the total hours, date range and per-project breakdown.
-5. Call `log_work` with `batchId` and `confirm: true`. Add `allowUnbooked: true` only if the user agreed to log to a project that is not booked on that date.
+5. Call `log_work` with `batchId` and `confirm: true`.
+   - Add `allowUnbooked: true` only if the user agreed to log to a project that is not booked on that date.
+   - Add `allowDuplicates: true` only if the user confirmed that lines flagged as possible duplicates are new work (see below).
 
 The `batchId` changes whenever a description or `defaultWorklogTask` changes, so an approval always covers the exact text that will be written. If an entry is unresolved, re-preview with `projectOverrides` (preview entry id → `projectMemberId`), or save a mapping with `map_project`.
 
@@ -338,6 +346,13 @@ The two applies are intentionally not atomic. `log_work` never writes Jira, and 
 
 You do not need to create the mapping file by hand. When a preview cannot resolve a ticket like `SCB-213`, the assistant calls `list_projects`. After you approve, it calls `map_project` with `tickets`, an optional `keywords`, and `confirm: true`.
 
+For commit drafts, a mapping can also list git repos.
+- When `draft_from_commits` reports `unmappedRepos`, the assistant can call `map_project` with `repos` (absolute paths) and `confirm: true`.
+- At least one ticket prefix or repo is required.
+- A subfolder is stored as the root of its repo.
+- Paths are compared without trailing separators, and case-insensitively on Windows.
+- In the terminal UI, `/map --repo [path] <projectMemberId>` does the same. The path defaults to the current folder.
+
 Mappings are stored in one of two places:
 - **User scope (default):** `~/.logwork-cli/.logwork.json`.
 - **Project scope:** `.logwork.json` in the current repo. A repo that still has `.logwork-helper.json` keeps using that file until a `.logwork.json` exists.
@@ -349,7 +364,8 @@ Mappings are stored in one of two places:
       "projectName": "2621A-SIT-HTML BUILDER-PRJ",
       "projectMemberId": 5234,
       "tickets": ["SCB"],
-      "keywords": ["question bank", "programme", "cluster"]
+      "keywords": ["question bank", "programme", "cluster"],
+      "repos": ["/Users/me/code/html-builder"]
     }
   ]
 }
@@ -366,3 +382,23 @@ Only allow this when the matched project is correct. Apply with:
 ```json
 { "batchId": "<from preview>", "confirm": true, "allowUnbooked": true }
 ```
+
+### Possible Duplicates
+
+Before showing a `log_work` preview, the server reads your RO entries for each date in the batch (`GET /logwork/day`).
+
+An entry is flagged `possibleDuplicate` in two cases:
+- **It matches an existing RO entry** on the same date: the same worklog task (by id, or by name when RO has no id), the same hours and the same description. The description compare ignores extra spaces and letter case.
+- **It repeats an earlier line** of the same batch.
+
+The summary shows a `WARNING possible duplicate` line for each one.
+
+Apply refuses the whole batch while duplicates remain, and nothing is written. The preview stays cached, so after the user confirms the lines are really new work, call again with the same `batchId`:
+
+```json
+{ "batchId": "<from preview>", "confirm": true, "allowDuplicates": true }
+```
+
+Usually the better fix is to drop the duplicated lines and preview again.
+
+If RO cannot be read for a date (other than a login problem), the preview is not blocked. Its summary notes that the duplicate check was skipped for that date. In the terminal UI, `/apply` asks a separate question before submitting possible duplicates; the default answer is no.

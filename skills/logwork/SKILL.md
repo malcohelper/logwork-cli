@@ -10,19 +10,20 @@ Goal: every logged line is backed by real work (the user's commits or what the u
 ## Steps
 
 1. **Find the gaps.** Call `get_logwork` for the period. A day/project still needs time when booked > logged. Skip days that are already full.
-2. **Collect the evidence.** Call `draft_from_commits` with the same period and `repos` set to every repo the user worked in (the open workspace folders; ask the user for others). It groups the user's commits per day by repo, ticket and kind of work, suggests a worklog task per group, and splits each day's remaining RO hours across the groups. Treat its hours as a starting point, not a fact.
+2. **Collect the evidence.** Call `draft_from_commits` with the same period and `repos` set to every repo the user worked in (the open workspace folders; ask the user for others). It groups the user's commits per day by repo, ticket and kind of work, suggests a worklog task per group, picks each group's RO project (a `map_project` mapping whose `repos` holds the repo, else ticket/keyword mappings and that day's bookings), and splits each project's remaining RO hours across its groups. It returns `draftText` and `projectOverrides` (preview entry id → `projectMemberId`). Treat its hours as a starting point, not a fact.
 3. **Check the worklog tasks.** For each project involved, call `list_tasks(projectId)`. Keep the suggested task when it exists in that catalog; otherwise pick the catalog task whose description matches the work.
 4. **Write the descriptions.** One line per piece of work: what was done and the outcome, with ticket keys, in English, under about 200 characters, no `|`. Rewrite vague commit subjects ("wip", "fix", "update"); use `get_jira_issue` to read the ticket when the subject alone is unclear.
 5. **Set the hours.**
-   - Stay within the remaining booked hours per day and project unless the user says otherwise. The draft splits the day's total; use each day's `remainingByProject` to move hours to the project the work belongs to.
+   - Stay within the remaining booked hours per day and project unless the user says otherwise. The draft already gives each project at most its own remaining hours; lines without a project share the room of booked projects no other line claimed. A project with no room left gets 0h, and the summary says so.
    - If `draft_from_commits` returns `authRequired`, call `login` first; do not guess hours without RO.
    - Use 0.5h steps.
    - Do not log weekends or days without a booking unless the user asks.
    - Work without commits (meetings, reviews, support) only comes from the user; ask, then log it as `Other Activities` or `Code Review & Refactoring`.
-6. **Resolve projects.** Ticket prefixes and mappings pick the project. If a line stays unresolved, ask the user and offer `map_project` so it is automatic next time.
+6. **Resolve projects.** The draft's `projectOverrides` already name the project of every resolved line. For `unmappedRepos` (lines with no project), ask the user which RO project the repo belongs to and offer `map_project` with `repos` (and `tickets` if useful), so later drafts resolve it; then run `draft_from_commits` again. A line `log_work` still cannot resolve: ask the user and add its id to `projectOverrides`.
 7. **Get approval, then write.**
    - Show the final block to the user.
-   - On approval, call `log_work(text)` and show its preview summary.
+   - On approval, call `log_work(text, projectOverrides)` and show its preview summary. Pass `projectOverrides` from the draft unchanged when `draftText` is unchanged. Entry ids are `<date>-<NN>` with NN counting lines through the whole text, so if you add, remove or reorder lines, renumber the overrides to match.
+   - If the preview flags `possibleDuplicate` entries, show the warnings. They match an existing RO entry (or an earlier line) on date, worklog task, hours and description. Usually drop those lines and preview again. Pass `allowDuplicates: true` on the confirm call only when the user says it is really new work.
    - Then call `log_work(batchId, confirm: true)`.
    - If the user also logs Jira, do the same with `log_jira_work`. Jira needs exactly one issue key per line.
 
