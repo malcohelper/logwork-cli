@@ -186,13 +186,13 @@ The default tasks shared by all projects are:
 
 `logwork setup` prints the configs. You can also open the terminal UI with `logwork` and type `/mcp` (or `/mcp cursor`, `/mcp antigravity`, `/mcp copilot`, `/mcp claude-code`, `/mcp codex`).
 
-Every client runs the same thing, `node ~/.logwork-cli/bin/logwork.mjs mcp`, under the server name `logwork`:
+Every client runs the same thing, `<node> ~/.logwork-cli/bin/logwork.mjs mcp`, under the server name `logwork`. The printed configs use the absolute path of your Node binary, because IDEs started from the Dock or Finder often do not see nvm's `node` on `PATH`:
 
 ```json
 {
   "mcpServers": {
     "logwork": {
-      "command": "node",
+      "command": "/Users/you/.nvm/versions/node/v24.1.0/bin/node",
       "args": ["/Users/you/.logwork-cli/bin/logwork.mjs", "mcp"]
     }
   }
@@ -202,8 +202,10 @@ Every client runs the same thing, `node ~/.logwork-cli/bin/logwork.mjs mcp`, und
 For Claude Code, run:
 
 ```bash
-claude mcp add --transport stdio logwork -- node ~/.logwork-cli/bin/logwork.mjs mcp
+claude mcp add --transport stdio logwork -- "$(which node)" ~/.logwork-cli/bin/logwork.mjs mcp
 ```
+
+If you upgrade or remove that Node (`nvm uninstall`, `brew upgrade node`), re-run `logwork setup` and paste the new config. `logwork doctor` warns when the recorded Node path is gone.
 
 Restart or reload the IDE's MCP tools after saving.
 
@@ -298,6 +300,7 @@ In the terminal UI, `/logwork` opens a target picker. `/logwork ro` writes Resou
 ```bash
 logwork reminder enable                 # 17:00 Monday-Friday, RO and Jira
 logwork reminder enable --time 18:00 --target ro
+logwork reminder enable --repo ~/code/app --repo ~/code/api   # add commit evidence
 logwork reminder test
 logwork reminder status
 logwork reminder disable
@@ -305,7 +308,19 @@ logwork reminder disable
 
 For Resource Optimiser, the reminder compares today's logged and booked hours. For Jira, it checks whether you have any worklog today. Complete days stay silent.
 
-macOS uses a user `launchd` agent (`sg.vinova.logwork-cli.reminder`) and Windows uses Task Scheduler (`Logwork Reminder`). Neither schedule stores credentials.
+With `--repo` (repeatable; `--no-repos` clears the list), a reminder about missing RO hours also counts your commits today in those repos and points you to a draft:
+
+```text
+Logwork hôm nay chưa hoàn tất
+RO: 4/8h, còn thiếu 4h
+Hôm nay: 5 commit trong 2 repo
+
+Mở Terminal và chạy: logwork commits today (bản nháp từ commit)
+```
+
+Repos listed on project mappings are used too. Run outside a git repo, `logwork commits today` falls back to these repos. If reading commits fails, the reminder shows the plain message.
+
+macOS uses a user `launchd` agent (`sg.vinova.logwork-cli.reminder`) and Windows uses Task Scheduler (`Logwork Reminder`). Neither schedule stores credentials. The schedule stores the absolute Node path; after upgrading or removing that Node, run `logwork reminder enable` (or `logwork setup`) again. `logwork reminder status` warns when that path no longer exists.
 
 ## Reconcile RO And Jira
 

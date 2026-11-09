@@ -2,7 +2,7 @@
   "servers": {
     "logwork": {
       "type": "stdio",
-      "command": "node",
+      "command": "<absolute path to node>",
       "args": ["<home>/.logwork-cli/bin/logwork.mjs", "mcp"]
     }
   }

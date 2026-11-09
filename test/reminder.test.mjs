@@ -43,7 +43,8 @@ test('reminder config defaults to weekdays at 17:00 for both targets', async () 
     enabled: false,
     time: '17:00',
     target: 'both',
-    days: [1, 2, 3, 4, 5]
+    days: [1, 2, 3, 4, 5],
+    repos: []
   });
   assert.throws(() => normalizeReminderConfig({ time: '25:00' }), /HH:mm/);
   assert.throws(() => normalizeReminderConfig({ target: 'email' }), /ro, jira, or both/);
@@ -56,7 +57,8 @@ test('reminder config defaults to weekdays at 17:00 for both targets', async () 
     enabled: true,
     time: '18:05',
     target: 'ro',
-    days: [1, 3, 5]
+    days: [1, 3, 5],
+    repos: []
   });
 });
 

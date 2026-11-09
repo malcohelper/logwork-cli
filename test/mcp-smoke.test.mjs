@@ -112,7 +112,8 @@ test('MCP server lists logwork tools over stdio', async () => {
     assert.deepEqual(tools.map_project.inputSchema.properties.scope.enum, ['user', 'project']);
     assert.deepEqual(params('login'), ['target']);
     assert.deepEqual(tools.login.inputSchema.properties.target.enum, ['ro', 'jira']);
-    assert.deepEqual(params('reminder'), ['action', 'confirm', 'target', 'time']);
+    assert.deepEqual(params('reminder'), ['action', 'confirm', 'repos', 'target', 'time']);
+    assert.equal(tools.reminder.inputSchema.properties.repos.type, 'array');
     assert.deepEqual(tools.reminder.inputSchema.properties.action.enum, ['status', 'enable', 'disable', 'test']);
     assert.deepEqual(params('update'), ['action', 'confirm', 'force', 'version']);
     assert.deepEqual(params('get_jira_issue'), ['issueKey']);
@@ -164,6 +165,9 @@ test('MCP server lists logwork tools over stdio', async () => {
     const rejectedReminder = await call('reminder', { action: 'enable', confirm: false });
     assert.equal(rejectedReminder.isError, true);
     assert.match(rejectedReminder.content[0].text, /requires confirm: true/);
+    const reminderRepos = await call('reminder', { action: 'status', repos: ['/tmp/repo'] });
+    assert.equal(reminderRepos.isError, true);
+    assert.match(reminderRepos.content[0].text, /repos is only valid when enabling/);
 
     const jiraLogin = await call('login', { target: 'jira' });
     assert.notEqual(jiraLogin.isError, true);

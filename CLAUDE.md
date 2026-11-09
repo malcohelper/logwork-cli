@@ -110,7 +110,8 @@ Rules:
   - the apply ledger (`lib/apply-ledger.mjs`, sanitized);
   - diagnostics;
   - the update cache;
-  - the reminder config.
+  - the reminder config (including optional commit-summary `repos`);
+  - `runtime.json`, written by `logwork setup` (`lib/node-runtime.mjs`): the absolute node path and version. MCP configs and the reminder schedule store an absolute node path (`process.execPath`); `logwork doctor` and `logwork reminder status` warn when it is gone or stale.
 - **Migration from logwork-helper:**
   - `lib/legacy-migration.mjs` copies state files once from `~/.logwork-helper`, renaming `.logwork-helper.json` to `.logwork.json`. It writes the marker `.migrated-from-logwork-helper`, never overwrites existing files, and is skipped when a custom home is set.
   - `credential-store.mjs#withLegacyService` reads the old `logwork-helper` service on a miss and copies the value forward. `delete` clears both services.
