@@ -49,7 +49,7 @@ Resource Optimiser credentials and Jira PATs are never accepted by MCP tools. Th
 | Delete RO entry | `logwork delete` | - | `delete_entry` | Apply call only |
 | Log Jira | - | `/logwork jira` | `log_jira_work` | Apply call only |
 | Log Both | - | `/logwork both` | `log_work` + `log_jira_work` separately | Apply calls only |
-| Project mapping | - | `/projects`, `/map` | `list_projects`, `map_project` | Local config only |
+| Project mapping | - | `/projects`, `/map`, `/map --repo` | `list_projects`, `map_project` | Local config only |
 | RO worklog task catalog | - | - | `list_tasks` | No |
 | Reconcile RO/Jira | `logwork reconcile` | `/reconcile` | `reconcile` | No |
 | Apply history | `logwork history` | `/history` | `get_history` | No |
@@ -270,6 +270,8 @@ Submitted 2 entries, 3h total.
 ```
 
 If a valid membership is not booked for the selected date, preview prefixes the entry with `UNBOOKED`. Applying it requires a second decision through `allowUnbooked: true`. An unresolved project always blocks apply.
+
+Preview also reads the RO entries of each date. An entry with the same worklog task, hours and description as an existing entry (or an earlier line of the batch) gets a `WARNING possible duplicate` line. Applying it requires a separate decision: `allowDuplicates: true`, or a yes to the duplicate question in the terminal UI. Without it, nothing is written. If the day cannot be read, the preview notes that the duplicate check was skipped and does not block.
 
 ## Jira Processing Example
 

@@ -86,7 +86,9 @@ The server exposes 16 tools and one prompt:
 - reads `git log --branches --remotes` for the author;
 - groups commits per day by repo + ticket + kind of work;
 - maps the kind of work to a default worklog task with `WORK_KINDS`;
-- splits the RO remaining hours per day (summed per project) in 0.5h steps with `allocateHours`.
+- resolves each group's project: a mapping whose `repos` holds the repo root (`findRepoMapping`), else `resolveEntryProject` against that day's booked projects;
+- gives each project's groups that project's remaining hours (booked minus logged) in 0.5h steps with `allocateHours`; unresolved groups share the room of booked projects no group claimed. Without RO it splits a standard day across all groups;
+- returns `projectOverrides` keyed by the log_work entry ids. The parser numbers `<date>-<NN>` through the whole text, not per date.
 
 It never writes.
 
@@ -97,6 +99,7 @@ Rules:
   - Without `confirm`, the tool previews and caches the result by `batchId` or `previewId` (TTL 1h). Every input that changes what gets written must be part of that id (see `createBatchId`, the `defaultWorklogTask` / `typeOfWork` suffixes, the resubmit hash). RO edit, resubmit and delete previews are cached with `setCachedRoEditPreview`; their apply re-reads the entry and refuses when its revision fingerprint changed.
   - With the id and `confirm: true`, the tool consumes the cached preview and applies it.
   - Apply calls must reject content fields (`assertApplyOnly`), and preview calls must have their required inputs (`requirePreviewInput`).
+  - `log_work` preview flags `possibleDuplicate` entries (`attachDuplicateWarnings`, reading `/logwork/day` per date; injectable as `fetchDayEntries`). Apply refuses them unless `allowDuplicates: true`; like `allowUnbooked`, the check runs before the cached preview is consumed.
   - Do not split tools back into `preview_*` / `apply_*` pairs.
 - MCP tools never accept passwords, OTPs or tokens. Auth errors return `authRequired` and point to the `login` tool or to `logwork login` / `logwork login jira`.
 
@@ -105,7 +108,7 @@ Rules:
 - **RO auth** (`lib/api-auth.mjs`, `lib/auth.mjs`) runs the Keycloak login over HTTP from the terminal: email, password, 2FA. The session, including the refresh token, is stored in macOS Keychain or Windows Credential Manager (`lib/credential-store.mjs`) under service `logwork-cli`. On a 401, workflows force a re-login and retry once.
 - **Jira** uses a PAT saved via `logwork login jira`.
 - **Local files** live under `~/.logwork-cli`:
-  - project mappings in `.logwork.json` (user scope; or project scope in the cwd, where a legacy `.logwork-helper.json` is used until a `.logwork.json` exists);
+  - project mappings in `.logwork.json` (`tickets`, `keywords`, optional `repos` of git repo roots; user scope; or project scope in the cwd, where a legacy `.logwork-helper.json` is used until a `.logwork.json` exists);
   - drafts;
   - the apply ledger (`lib/apply-ledger.mjs`, sanitized);
   - diagnostics;

@@ -16,6 +16,7 @@ import {
   parseGitLog,
   remainingHoursByDay
 } from '../lib/commit-workflow.mjs';
+import { parseWeeklyLogText } from '../lib/batch-parser.mjs';
 
 test('commits are classified by conventional type, then subject keywords, then body', () => {
   assert.equal(classifyCommit('feat(auth): add SSO login'), 'feature');
@@ -90,12 +91,14 @@ test('RO remaining time is summed per project so over-logging does not hide gaps
       ]
     }]
   });
-  assert.deepEqual(byDay.get('2026-11-06'), {
-    bookedHours: 10.4,
-    loggedHours: 9.5,
-    remainingHours: 2.4,
-    remainingByProject: [{ projectName: 'FCS', remainingHours: 2.4 }]
-  });
+  const day = byDay.get('2026-11-06');
+  assert.equal(day.bookedHours, 10.4);
+  assert.equal(day.loggedHours, 9.5);
+  assert.equal(day.remainingHours, 2.4);
+  assert.deepEqual(day.remainingByProject, [{ projectName: 'FCS', remainingHours: 2.4 }]);
+  assert.deepEqual(day.projects.map((project) => [project.projectName, project.remainingHours]), [
+    ['Presale', 0], ['FCS', 2.4], ['Portal', 0], ['Hosting', 0]
+  ]);
   assert.equal(formatDayHeading('2026-11-06'), 'Friday, 06 Nov 2026');
 });
 
@@ -245,4 +248,147 @@ test('status is no_hours when commits exist but no day has room', async () => {
   const result = await draftLogworkFromCommits({ from: '2026-11-07', to: '2026-11-08', repos: [dir], useBookings: false });
   assert.equal(result.status, 'no_hours');
   assert.equal(result.draftText, '');
+});
+
+function repoRoot(dir) {
+  return git(dir, ['rev-parse', '--show-toplevel']).trim();
+}
+
+const projectA = { projectMemberId: 101, projectId: 11, projectName: 'Alpha Portal' };
+const projectB = { projectMemberId: 202, projectId: 22, projectName: 'Beta Mobile' };
+const projectC = { projectMemberId: 303, projectId: 33, projectName: 'Gamma Ops' };
+
+test('draft allocates each project its own remaining hours and returns projectOverrides matching the parser ids', async () => {
+  const appRepo = makeRepo();
+  appRepo.commit('a1.txt', 'feat: dashboard widgets', '2026-11-05T09:00:00');
+  appRepo.commit('a2.txt', 'fix: chart legend', '2026-11-05T10:00:00');
+  appRepo.commit('a3.txt', 'feat: export report', '2026-11-06T09:00:00');
+  const sharedRepo = makeRepo();
+  sharedRepo.commit('b1.txt', 'feat: offline sync (BETA-7)', '2026-11-05T11:00:00');
+  sharedRepo.commit('b2.txt', 'chore: tidy scripts', '2026-11-05T12:00:00');
+  sharedRepo.commit('b3.txt', 'feat: push settings (BETA-8)', '2026-11-06T11:00:00');
+
+  const result = await draftLogworkFromCommits({
+    from: '2026-11-05',
+    to: '2026-11-07',
+    repos: [appRepo.dir, sharedRepo.dir],
+    loadConfig: async () => ({
+      projectMappings: [
+        { ...projectA, tickets: [], keywords: [], repos: [repoRoot(appRepo.dir)] },
+        { ...projectB, tickets: ['BETA'], keywords: [] }
+      ]
+    }),
+    queryRo: async () => ({
+      days: [
+        {
+          date: '2026-11-05',
+          bookedHours: 10,
+          loggedHours: 1,
+          projects: [
+            { ...projectA, bookedHours: 4, loggedHours: 1 },
+            { ...projectB, bookedHours: 4, loggedHours: 0 },
+            { ...projectC, bookedHours: 2.4, loggedHours: 0 }
+          ]
+        },
+        {
+          // Alpha is full on Friday; Beta still has room.
+          date: '2026-11-06',
+          bookedHours: 6,
+          loggedHours: 4,
+          projects: [
+            { ...projectA, bookedHours: 4, loggedHours: 4 },
+            { ...projectB, bookedHours: 2, loggedHours: 0 }
+          ]
+        }
+      ]
+    })
+  });
+
+  assert.equal(result.status, 'draft');
+  const [thursday, friday] = result.days;
+  const byProject = (day, name) => day.groups.filter((group) => group.project?.projectName === name);
+  const sum = (groups) => groups.reduce((total, group) => total + group.hours, 0);
+
+  // Alpha (repo mapping) gets its 3h room, Beta (ticket mapping) its 4h, and
+  // the unresolved chore shares the 2.4h left on Gamma, rounded down to 2h.
+  assert.deepEqual(byProject(thursday, 'Alpha Portal').map((group) => group.project.source), ['repo_mapping', 'repo_mapping']);
+  assert.equal(sum(byProject(thursday, 'Alpha Portal')), 3);
+  assert.equal(byProject(thursday, 'Beta Mobile')[0].project.source, 'resolver');
+  assert.equal(byProject(thursday, 'Beta Mobile')[0].project.reason, 'config_ticket');
+  assert.equal(sum(byProject(thursday, 'Beta Mobile')), 4);
+  const unresolved = thursday.groups.filter((group) => !group.project);
+  assert.equal(unresolved.length, 1);
+  assert.equal(unresolved[0].hours, 2);
+  assert.deepEqual(thursday.unresolvedAllocation, { groupCount: 1, roomHours: 2.4, allocatedHours: 2 });
+
+  // A full project gets 0h and the summary says so; nothing exceeds its room.
+  assert.equal(sum(byProject(friday, 'Alpha Portal')), 0);
+  assert.equal(sum(byProject(friday, 'Beta Mobile')), 2);
+  assert.match(result.summary, /No room on Alpha Portal \(remaining 0h\): its 1 line\(s\) get 0h\./);
+  assert.match(result.summary, /-> Alpha Portal \(repo mapping\)/);
+  assert.match(result.summary, /-> Beta Mobile \(config_ticket\)/);
+  assert.match(result.summary, /-> project unresolved/);
+  for (const day of result.days) {
+    for (const allocation of day.projectAllocation) {
+      assert.ok(allocation.allocatedHours <= allocation.remainingHours, `${allocation.projectName} stays within its room`);
+    }
+  }
+
+  // Every resolved line maps to its projectMemberId under the id log_work's
+  // parser gives that line; unresolved and 0h lines have no override.
+  const parsed = parseWeeklyLogText(result.draftText);
+  assert.deepEqual(parsed.errors, []);
+  const groupsByLine = result.days.flatMap((day) => day.groups.filter((group) => group.hours > 0));
+  assert.equal(parsed.entries.length, groupsByLine.length);
+  parsed.entries.forEach((entry, index) => {
+    const group = groupsByLine[index];
+    assert.equal(entry.id, group.entryId);
+    assert.equal(entry.description, group.description);
+    assert.equal(result.projectOverrides[entry.id], group.project?.projectMemberId);
+  });
+  assert.equal(Object.keys(result.projectOverrides).length, parsed.entries.filter((entry, index) => groupsByLine[index].project).length);
+  assert.ok(parsed.entries.some((entry) => entry.date === '2026-11-06'), 'ids continue across days');
+  assert.match(result.summary, /Pass projectOverrides to log_work/);
+
+  assert.deepEqual(result.unmappedRepos, [repoRoot(sharedRepo.dir)]);
+  assert.match(result.summary, /offer map_project with repos/);
+});
+
+test('a repo mapped to a project with no booking that day gets 0h', async () => {
+  const { dir, commit } = makeRepo();
+  commit('a.txt', 'feat: widgets', '2026-11-05T09:00:00');
+  const result = await draftLogworkFromCommits({
+    from: '2026-11-05',
+    to: '2026-11-06',
+    repos: [dir],
+    loadConfig: async () => ({ projectMappings: [{ ...projectA, tickets: [], keywords: [], repos: [repoRoot(dir)] }] }),
+    queryRo: async () => ({
+      days: [{ date: '2026-11-05', bookedHours: 8, loggedHours: 0, projects: [{ ...projectB, bookedHours: 8, loggedHours: 0 }] }]
+    })
+  });
+  assert.equal(result.days[0].groups[0].project.projectMemberId, 101);
+  assert.equal(result.days[0].groups[0].hours, 0);
+  assert.equal(result.status, 'no_hours');
+  assert.match(result.summary, /No room on Alpha Portal \(not booked this day\)/);
+});
+
+test('without RO the draft keeps the standard day split but still names mapped projects', async () => {
+  const { dir, commit } = makeRepo();
+  commit('a.txt', 'feat: widgets', '2026-11-05T09:00:00');
+  commit('b.txt', 'fix: legend', '2026-11-05T10:00:00');
+  const result = await draftLogworkFromCommits({
+    from: '2026-11-05',
+    to: '2026-11-06',
+    repos: [dir],
+    loadConfig: async () => ({ projectMappings: [{ ...projectA, tickets: [], keywords: [], repos: [repoRoot(dir)] }] }),
+    queryRo: async () => {
+      throw new Error('connect ETIMEDOUT');
+    }
+  });
+  const day = result.days[0];
+  assert.equal(day.hoursSource, 'standard_day');
+  assert.equal(day.projectAllocation, undefined);
+  assert.equal(day.groups.reduce((sum, group) => sum + group.hours, 0), 8);
+  assert.ok(day.groups.every((group) => group.project?.source === 'repo_mapping'));
+  assert.deepEqual(Object.values(result.projectOverrides), [101, 101]);
 });

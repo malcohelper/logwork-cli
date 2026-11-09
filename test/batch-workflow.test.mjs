@@ -8,6 +8,7 @@ import {
   previewLogworkBatch
 } from '../lib/batch-workflow.mjs';
 import { parseWeeklyLogText } from '../lib/batch-parser.mjs';
+import { createAuthRequiredError } from '../lib/auth-errors.mjs';
 
 const weeklyText = `Monday, 01 Jun 2026
 +2 Maintenance mode management and status UI (SCB-213)
@@ -354,6 +355,7 @@ test('attachWorklogTaskTargets keeps task_not_found for an explicit unknown task
 
 test('previewLogworkBatch splits worklog task and description and apply sends description', async () => {
   const preview = await previewLogworkBatch({
+    fetchDayEntries: async () => [],
     text: describedText,
     fetchProjects: async () => projectsByDate.get('2026-06-01'),
     fetchWorklogTasks: async () => catalogTasks
@@ -389,6 +391,7 @@ test('previewLogworkBatch uses defaultWorklogTask and keeps free text as descrip
   const text = `Monday, 01 Jun 2026
 +2 Implement maintenance mode UI (SCB-213)`;
   const withoutDefault = await previewLogworkBatch({
+    fetchDayEntries: async () => [],
     text,
     fetchProjects: async () => projectsByDate.get('2026-06-01'),
     fetchWorklogTasks: async () => catalogTasks
@@ -398,6 +401,7 @@ test('previewLogworkBatch uses defaultWorklogTask and keeps free text as descrip
   assert.match(withoutDefault.summary, /Available worklog tasks: Development, Code Review/);
 
   const preview = await previewLogworkBatch({
+    fetchDayEntries: async () => [],
     text,
     defaultWorklogTask: 'Development',
     fetchProjects: async () => projectsByDate.get('2026-06-01'),
@@ -413,6 +417,7 @@ test('previewLogworkBatch uses defaultWorklogTask and keeps free text as descrip
   assert.notEqual(preview.batchId, withoutDefault.batchId);
 
   const byId = await previewLogworkBatch({
+    fetchDayEntries: async () => [],
     text,
     defaultWorklogTask: '#78',
     fetchProjects: async () => projectsByDate.get('2026-06-01'),
@@ -436,6 +441,7 @@ test('batchId changes when only the description changes', () => {
 
 test('previewLogworkBatch resolves worklog tasks when names match', async () => {
   const preview = await previewLogworkBatch({
+    fetchDayEntries: async () => [],
     text: weeklyText,
     fetchProjects: async () => projectsByDate.get('2026-06-01'),
     fetchWorklogTasks: async () => [
@@ -459,6 +465,7 @@ test('previewLogworkBatch resolves worklog tasks when names match', async () => 
 
 test('previewLogworkBatch inherits typeOfWork from matched catalog task', async () => {
   const preview = await previewLogworkBatch({
+    fetchDayEntries: async () => [],
     text: weeklyText,
     fetchProjects: async () => projectsByDate.get('2026-06-01'),
     fetchWorklogTasks: async () => [
@@ -482,6 +489,7 @@ test('previewLogworkBatch inherits typeOfWork from matched catalog task', async 
 
 test('previewLogworkBatch batch typeOfWork overrides catalog defaults', async () => {
   const preview = await previewLogworkBatch({
+    fetchDayEntries: async () => [],
     text: weeklyText,
     typeOfWork: 'improve',
     fetchProjects: async () => projectsByDate.get('2026-06-01'),
@@ -580,4 +588,121 @@ test('listWorklogTasks returns catalog tasks and the line format for agents', as
   ]);
   assert.match(result.summary, /#77 Development \(create\): Implement new features\./);
   await assert.rejects(() => listWorklogTasks({ projectId: 'abc', fetchWorklogTasks: async () => [] }), /projectId/);
+});
+
+test('previewLogworkBatch flags an entry already in RO and apply refuses it without allowDuplicates', async () => {
+  const readDates = [];
+  const preview = await previewLogworkBatch({
+    text: describedText,
+    fetchProjects: async () => projectsByDate.get('2026-06-01'),
+    fetchWorklogTasks: async () => catalogTasks,
+    fetchDayEntries: async (date) => {
+      readDates.push(date);
+      return [
+        // A soft-deleted entry no longer counts.
+        { id: 899, date, hours: 2, worklogTaskId: 78, description: 'Review maintenance mode PR (SCB-213)', raw: { deleted_date: '2026-06-01T10:00:00Z' } },
+        // Same task id, hours and description (different spacing and case).
+        { id: 900, date, hours: 2, worklogTaskId: 78, taskName: 'Code Review', description: '  review MAINTENANCE   mode PR (SCB-213) ', status: 'approved', projectName: 'Course Builder' },
+        // Same task, other hours: not a duplicate.
+        { id: 901, date, hours: 3, worklogTaskId: 77, description: '' }
+      ];
+    }
+  });
+
+  assert.deepEqual(readDates, ['2026-06-01']);
+  assert.deepEqual(preview.entries[0].possibleDuplicate, {
+    source: 'ro',
+    logworkId: 900,
+    date: '2026-06-01',
+    hours: 2,
+    taskName: 'Code Review',
+    worklogTaskId: 78,
+    description: '  review MAINTENANCE   mode PR (SCB-213) ',
+    status: 'approved',
+    projectName: 'Course Builder'
+  });
+  assert.equal(preview.entries[1].possibleDuplicate, undefined);
+  assert.equal(preview.duplicateEntries.length, 1);
+  assert.equal(preview.duplicateCheck.status, 'checked');
+  assert.equal(preview.approvalSummary.requiresAllowDuplicates, true);
+  assert.match(preview.summary, /Possible duplicates: 1\. Apply requires allowDuplicates: true\./);
+  assert.match(preview.summary, /WARNING possible duplicate 2026-06-01-01: \+2h Code Review \| Review maintenance mode PR \(SCB-213\) matches existing RO logwork 900 on Course Builder, approved\./);
+
+  const payloads = [];
+  const submitEntry = async (payload) => {
+    payloads.push(payload);
+    return { dryRun: true };
+  };
+  await assert.rejects(
+    () => applyLogworkBatch({ batch: preview, confirm: true, submitEntry }),
+    /Nothing was written\. 1 entry looks already logged: 2026-06-01-01 .*RO logwork 900.*allowDuplicates: true/
+  );
+  assert.equal(payloads.length, 0);
+
+  const result = await applyLogworkBatch({ batch: preview, confirm: true, allowDuplicates: true, submitEntry });
+  assert.equal(result.status, 'submitted');
+  assert.equal(payloads.length, 2);
+});
+
+test('duplicate check falls back to the task name when RO has no worklog task id', async () => {
+  const preview = await previewLogworkBatch({
+    text: describedText,
+    fetchProjects: async () => projectsByDate.get('2026-06-01'),
+    fetchWorklogTasks: async () => catalogTasks,
+    fetchDayEntries: async (date) => [
+      { id: 902, date, hours: 1, worklogTaskId: null, taskName: 'development', description: '' },
+      { id: 903, date, hours: 2, worklogTaskId: null, taskName: 'Bug Fix', description: 'Review maintenance mode PR (SCB-213)' }
+    ]
+  });
+  assert.equal(preview.entries[0].possibleDuplicate, undefined, 'another task name is not a duplicate');
+  assert.equal(preview.entries[1].possibleDuplicate.logworkId, 902);
+});
+
+test('duplicate check flags a line repeated inside the same batch', async () => {
+  const preview = await previewLogworkBatch({
+    text: `Monday, 01 Jun 2026
++2 Code Review | Review PR (SCB-213)
++2 Code Review | review  pr (SCB-213)
++2 Code Review | Review PR (SCB-214)
+Tuesday, 02 Jun 2026
++2 Code Review | Review PR (SCB-213)`,
+    fetchProjects: async () => projectsByDate.get('2026-06-01'),
+    fetchWorklogTasks: async () => catalogTasks,
+    fetchDayEntries: async () => []
+  });
+  assert.deepEqual(preview.entries.map((entry) => entry.possibleDuplicate?.entryId ?? null), [null, '2026-06-01-01', null, null]);
+  assert.equal(preview.entries[1].possibleDuplicate.source, 'batch');
+  assert.match(preview.summary, /2026-06-01-02: .* repeats line 2026-06-01-01 of this batch/);
+  await assert.rejects(
+    () => applyLogworkBatch({ batch: preview, confirm: true, submitEntry: async () => ({ dryRun: true }) }),
+    /Nothing was written.*matches line 2026-06-01-01/
+  );
+});
+
+test('a failed RO day read skips the duplicate check with a note, but an auth error still stops the preview', async () => {
+  const preview = await previewLogworkBatch({
+    text: describedText,
+    fetchProjects: async () => projectsByDate.get('2026-06-01'),
+    fetchWorklogTasks: async () => catalogTasks,
+    fetchDayEntries: async () => {
+      throw new Error('connect ETIMEDOUT');
+    }
+  });
+  assert.equal(preview.status, 'ready');
+  assert.equal(preview.duplicateEntries.length, 0);
+  assert.equal(preview.duplicateCheck.status, 'skipped');
+  assert.deepEqual(preview.duplicateCheck.skippedDates, [{ date: '2026-06-01', error: 'connect ETIMEDOUT' }]);
+  assert.match(preview.summary, /Note: duplicate check skipped for 2026-06-01 \(could not read RO entries: connect ETIMEDOUT\)\./);
+
+  await assert.rejects(
+    () => previewLogworkBatch({
+      text: describedText,
+      fetchProjects: async () => projectsByDate.get('2026-06-01'),
+      fetchWorklogTasks: async () => catalogTasks,
+      fetchDayEntries: async () => {
+        throw createAuthRequiredError();
+      }
+    }),
+    (error) => error.code === 'AUTH_REQUIRED'
+  );
 });

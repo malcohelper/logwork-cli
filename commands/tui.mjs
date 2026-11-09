@@ -43,6 +43,7 @@ Common commands inside the UI:
   /reconcile this-week      Compare RO and Jira
   /projects                 List RO projects
   /map SCB 5234             Map a ticket prefix to a project
+  /map --repo . 5234        Map this git repo to a project (commit drafts)
   /mcp                      Show MCP config for an IDE
   /history                  Local apply history
 

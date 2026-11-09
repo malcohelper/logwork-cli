@@ -39,6 +39,27 @@ List the Resource Optimiser worklog tasks for my booked project today, then log 
 
 The assistant uses `list_projects` and `list_tasks`, writes `+2 <task> | <description>`, and previews. If you write lines without `|`, the assistant can pass `defaultWorklogTask` (for example `Feature Development`) so each line becomes the description.
 
+## Log From Commits Into The Right Projects
+
+Tell logwork which RO project each repo belongs to, once:
+
+```text
+logwork
+/map --repo ~/code/portal 5234
+```
+
+or ask your assistant: `Map the repo /Users/me/code/portal to my Portal project` (it calls `list_projects`, then `map_project` with `repos` after you approve).
+
+Then `logwork commits yesterday` (or the assistant's `draft_from_commits`) puts that repo's commits on project 5234. The hours come from what is still free on that project: booked minus logged. If the project is already full, its lines get 0h and the summary says so. Repos without a mapping fall back to ticket/keyword mappings and that day's bookings, and are listed at the end so you can map them.
+
+The assistant passes the draft's `projectOverrides` to `log_work` with the same text, so each line is logged to the project the draft chose.
+
+## Handle A Possible Duplicate RO Entry
+
+If a `log_work` preview shows `WARNING possible duplicate`, RO already has an entry on that date with the same worklog task, hours and description, or the batch repeats a line. This often happens after an agent re-ran or a batch failed partway.
+
+Check `/query` (or `get_logwork`) first. If the work is already logged, drop the line and preview again. Only if it really is separate work, approve it explicitly: in the terminal UI answer yes to the duplicate question, or let the assistant confirm with `allowDuplicates: true`. Without that, apply writes nothing.
+
 ## Edit Existing Resource Optimiser Logwork
 
 Find the RO logwork ID with `logwork query this-week`, `/query this-week`, or by asking the assistant to call `get_logwork`. Then use Terminal:

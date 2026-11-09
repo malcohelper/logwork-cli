@@ -74,8 +74,13 @@ the current directory) and drafts logwork lines:
   fix -> Bug Fix, refactor/perf/review -> Code Review & Refactoring,
   test -> Testing Activities, ci/build/release -> Deployment & Release,
   docs/design -> Requirements & Design, chore -> Other Activities.
-- Hours split the day's RO remaining time (booked - logged) by how much work
-  each group holds. With --no-bookings or without login, a weekday is 8h.
+- Each group gets an RO project: a mapping whose repos holds the repo (/map
+  --repo in the terminal UI, or map_project), else ticket/keyword mappings and
+  that day's bookings.
+- Each project's RO remaining time (booked - logged) is split across its
+  groups by how much work each holds; groups without a project share the room
+  of booked projects no group claimed. With --no-bookings or without login, a
+  weekday is 8h split across all groups.
 
 Nothing is written. Review the draft, then paste it into /logwork or give it
 to your AI agent (log_work).`;
