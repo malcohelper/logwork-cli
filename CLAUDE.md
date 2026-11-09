@@ -46,7 +46,8 @@ npm test                                   # node --test, all suites in test/*.t
 node --test test/batch-workflow.test.mjs   # single suite
 npm run dry-run                            # terminal UI with LOGWORK_DRY_RUN=1
 LOGWORK_DRY_RUN=1 node bin/logwork.mjs mcp # MCP server without RO or Jira writes
-npm run release:check                      # tests + audit + pack + diff check
+npm run lint                               # ESLint 9 flat config (eslint.config.mjs)
+npm run release:check                      # lint + tests + audit + pack + diff check
 ```
 
 User-facing CLI:

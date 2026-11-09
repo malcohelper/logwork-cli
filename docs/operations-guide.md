@@ -581,6 +581,7 @@ Migration from `logwork-helper` happens on the first run, unless `LOGWORK_HOME` 
 Run the cross-platform suite:
 
 ```bash
+npm run lint
 npm test
 git diff --check
 npm pack --dry-run
