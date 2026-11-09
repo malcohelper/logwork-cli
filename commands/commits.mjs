@@ -1,14 +1,18 @@
 import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { draftLogworkFromCommits } from '../lib/commit-workflow.mjs';
+import { upsertProjectMapping } from '../lib/project-mapping-workflow.mjs';
 import { normalizeReconciliationPeriod } from '../lib/reconciliation-workflow.mjs';
 import { loadReminderConfig } from '../lib/reminder-config.mjs';
 import { collectReminderRepos } from '../lib/reminder-workflow.mjs';
+import { chooseRepoProject } from '../lib/ui.mjs';
 
-// `logwork commits [period] [--repo path]... [--author x] [--no-bookings] [--json]`:
-// turn your git commits into a logwork draft. Read-only.
+// `logwork commits [period] [--repo path]... [--author x] [--no-bookings] [--no-prompt] [--json]`:
+// turn your git commits into a logwork draft. Never writes to RO or Jira; in an
+// interactive terminal it asks once per unmapped repo which project it belongs
+// to and saves the answer as a local repo mapping.
 export function parseCommitsArgs(args = []) {
-  const options = { period: 'today', repos: [], author: undefined, useBookings: true, json: false, help: false };
+  const options = { period: 'today', repos: [], author: undefined, useBookings: true, json: false, prompt: true, help: false };
   const positional = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -18,6 +22,8 @@ export function parseCommitsArgs(args = []) {
       options.json = true;
     } else if (arg === '--no-bookings') {
       options.useBookings = false;
+    } else if (arg === '--no-prompt') {
+      options.prompt = false;
     } else if (arg === '--repo' || arg === '--author') {
       const value = args[index + 1];
       if (!value || value.startsWith('--')) {
@@ -52,7 +58,10 @@ export async function run(args = [], {
   draft = draftLogworkFromCommits,
   print = console.log,
   cwd = process.cwd(),
-  reminderRepos = loadReminderRepos
+  reminderRepos = loadReminderRepos,
+  isInteractive = defaultIsInteractive,
+  chooseProject = chooseRepoProject,
+  saveMapping = upsertProjectMapping
 } = {}) {
   const options = parseCommitsArgs(args);
   if (options.help) {
@@ -71,18 +80,68 @@ export async function run(args = [], {
       fallbackNote = `Not in a git repo; using the reminder repos: ${fallback.join(', ')}`;
     }
   }
-  const result = await draft({
+  const draftOptions = {
     period: options.period,
     repos,
     author: options.author,
     useBookings: options.useBookings
-  });
+  };
+  const result = await draft(draftOptions);
   if (options.json) {
     print(JSON.stringify(result, null, 2));
-  } else {
-    print(fallbackNote ? `${fallbackNote}\n\n${result.summary}` : result.summary);
+    return 0;
+  }
+  print(fallbackNote ? `${fallbackNote}\n\n${result.summary}` : result.summary);
+
+  if (!options.prompt || !isInteractive() || !result.unmappedRepos?.length) {
+    return 0;
+  }
+  const mapped = await askRepoProjects(result, { chooseProject, saveMapping, print, cwd });
+  if (mapped) {
+    const updated = await draft(draftOptions);
+    print(`\nUpdated draft:\n\n${updated.summary}`);
   }
   return 0;
+}
+
+// One select prompt per unmapped repo (once per run); a chosen project is
+// saved as a user-scope repo mapping. Returns how many repos were mapped.
+export async function askRepoProjects(result, { chooseProject = chooseRepoProject, saveMapping = upsertProjectMapping, print = console.log, cwd = process.cwd() } = {}) {
+  const candidates = result.projectCandidates || [];
+  if (!candidates.length) {
+    return 0;
+  }
+  let mapped = 0;
+  for (const repo of result.unmappedRepos) {
+    const repoName = basename(repo) || repo;
+    const project = await chooseProject({
+      repoName,
+      suggestions: result.repoSuggestions?.[repo] || [],
+      candidates
+    });
+    if (!project) {
+      print(`Skipped ${repoName}; it will be asked again next time.`);
+      continue;
+    }
+    try {
+      await saveMapping({
+        repos: [repo],
+        ...(project.projectMemberId !== undefined ? { projectMemberId: project.projectMemberId } : { projectName: project.projectName }),
+        scope: 'user',
+        confirm: true,
+        cwd
+      });
+      print(`Mapped ${repoName} to ${project.projectName}. Later drafts use it automatically.`);
+      mapped += 1;
+    } catch (error) {
+      print(`Could not map ${repoName}: ${error.message}`);
+    }
+  }
+  return mapped;
+}
+
+function defaultIsInteractive() {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
 // True when dir or a parent holds .git (a directory, or a file for worktrees
@@ -108,7 +167,8 @@ async function loadReminderRepos() {
 export function formatCommitsHelp() {
   return `Usage:
   logwork commits [today|yesterday|this-week|last-week|this-month|last-month]
-                  [--repo <path>]... [--author <email>] [--no-bookings] [--json]
+                  [--repo <path>]... [--author <email>] [--no-bookings]
+                  [--no-prompt] [--json]
 
 Reads your commits (all branches, your git user.email) from each repo (default:
 the current directory; outside a git repo, the repos set with
@@ -120,14 +180,18 @@ the current directory; outside a git repo, the repos set with
   fix -> Bug Fix, refactor/perf/review -> Code Review & Refactoring,
   test -> Testing Activities, ci/build/release -> Deployment & Release,
   docs/design -> Requirements & Design, chore -> Other Activities.
-- Each group gets an RO project: a mapping whose repos holds the repo (/map
-  --repo in the terminal UI, or map_project), else ticket/keyword mappings and
-  that day's bookings.
+- Each group gets an RO project: a mapping whose repos holds the repo, else
+  ticket/keyword mappings and that day's bookings.
+- For a repo with no project, an interactive terminal asks once: "Which RO
+  project does <repo> belong to?", with the likely project preselected (ticket
+  history, repo/remote name, single booked project). The answer is saved as a
+  repo mapping and the draft is redone. Skip it to be asked again next time;
+  --no-prompt (or --json, or a non-interactive terminal) never asks.
 - Each project's RO remaining time (booked - logged) is split across its
   groups by how much work each holds; groups without a project share the room
   of booked projects no group claimed. With --no-bookings or without login, a
   weekday is 8h split across all groups.
 
-Nothing is written. Review the draft, then paste it into /logwork or give it
+Nothing is written to RO or Jira. Review the draft, then paste it into /logwork or give it
 to your AI agent (log_work).`;
 }

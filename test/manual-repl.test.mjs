@@ -51,6 +51,7 @@ import {
   OutputPanel,
   ProjectPicker,
   ProjectChart,
+  SelectPrompt,
   SlashMenu,
   StatusBar,
   TargetPicker,
@@ -1322,7 +1323,9 @@ test('manual /map --repo maps a git repo to a project', async () => {
     repos: ['/work/my repo'],
     projectMemberId: '5234'
   });
-  assert.throws(() => parseManualCommand('/map --repo'), /Usage: \/map/);
+  // Without a project the command opens the picker instead of failing.
+  assert.deepEqual(parseManualCommand('/map --repo'), { type: 'map', tickets: [], repos: ['.'] });
+  assert.throws(() => parseManualCommand('/map --repo . --bogus'), /Usage: \/map/);
 
   const printed = [];
   const asked = [];
@@ -1575,3 +1578,170 @@ function weeklyLogwork(overrides = {}) {
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+const MAP_FCS = { projectMemberId: 501, projectId: 51, projectName: 'GKE Fair Chem System (FCS)' };
+const MAP_PORTAL = { projectMemberId: 502, projectId: 52, projectName: 'Customer Portal' };
+const MAP_PORTAL_ADMIN = { projectMemberId: 503, projectId: 53, projectName: 'Customer Portal Admin' };
+const MAP_PROJECTS = [MAP_PORTAL, MAP_PORTAL_ADMIN, MAP_FCS];
+
+// prompts with a scripted select answer (a function of the asked options).
+function mapPrompts({ select, confirms = [] } = {}) {
+  const asked = { confirm: [], select: [] };
+  const queue = [...confirms];
+  return {
+    asked,
+    async confirm(message) {
+      asked.confirm.push(message);
+      return queue.length ? queue.shift() : true;
+    },
+    async select(input) {
+      asked.select.push(input);
+      return select(input);
+    }
+  };
+}
+
+function mapWorkflows({ suggestions = [], suggestError = null, saved = [] } = {}) {
+  return {
+    listLogworkProjects: async () => ({ summary: 'projects', projects: MAP_PROJECTS, mappings: [] }),
+    suggestProjectsForRepo: async (args) => {
+      saved.suggestArgs = args;
+      if (suggestError) {
+        throw suggestError;
+      }
+      return { repoRoot: '/work/fcs-web', candidates: MAP_PROJECTS, suggestions };
+    },
+    upsertProjectMapping: async (args) => {
+      saved.push(args);
+      return { summary: `Created project mapping for ${args.projectMemberId}.` };
+    }
+  };
+}
+
+test('/map --repo parses an optional path and a project name or id', () => {
+  assert.deepEqual(parseManualCommand('/map --repo ../fcs'), { type: 'map', tickets: [], repos: ['../fcs'] });
+  assert.deepEqual(parseManualCommand('/map --repo ~/work/fcs GKE Fair'), { type: 'map', tickets: [], repos: ['~/work/fcs'], projectQuery: 'GKE Fair' });
+  assert.deepEqual(parseManualCommand('/map --repo Customer Portal'), { type: 'map', tickets: [], repos: ['.'], projectQuery: 'Customer Portal' });
+  assert.deepEqual(parseManualCommand('/map --repo "/work/my repo" Customer Portal'), { type: 'map', tickets: [], repos: ['/work/my repo'], projectQuery: 'Customer Portal' });
+  assert.deepEqual(parseManualCommand('/map --repo C:\\work\\fcs 501'), { type: 'map', tickets: [], repos: ['C:\\work\\fcs'], projectMemberId: '501' });
+  assert.deepEqual(parseManualCommand('/map --repo myrepo 501'), { type: 'map', tickets: [], repos: ['myrepo'], projectMemberId: '501' });
+  assert.deepEqual(parseManualCommand('/map SCB Customer Portal'), { type: 'map', tickets: ['SCB'], projectQuery: 'Customer Portal' });
+  assert.deepEqual(parseManualCommand('/map SCB'), { type: 'map', tickets: ['SCB'] });
+  assert.throws(() => parseManualCommand('/map'), /Usage: \/map/);
+  assert.throws(() => parseManualCommand('/map --bogus'), /Usage: \/map/);
+});
+
+test('/map --repo without a project opens a picker with the suggested project first', async () => {
+  const saved = [];
+  const printed = [];
+  const prompts = mapPrompts({ select: (input) => input.initialValue });
+  await executeManualCommand(parseManualCommand('/map --repo'), createManualSession(), context({
+    cwd: '/work/fcs-web',
+    workflows: mapWorkflows({ suggestions: [{ ...MAP_FCS, score: 30, reasons: ['repo name matches FCS'] }], saved }),
+    prompts,
+    printed
+  }));
+
+  assert.equal(saved.suggestArgs.repo, '.');
+  assert.deepEqual(saved.suggestArgs.projects, MAP_PROJECTS);
+  const [question] = prompts.asked.select;
+  assert.match(question.message, /^Which RO project should repo .*fcs-web map to\?$/);
+  assert.deepEqual(question.options.map((option) => option.label), [MAP_FCS.projectName, 'Customer Portal', 'Customer Portal Admin', 'Cancel']);
+  assert.equal(question.options[0].hint, 'repo name matches FCS');
+  assert.equal(question.initialValue, question.options[0].value);
+  assert.deepEqual(prompts.asked.confirm, [], 'the picker choice is the confirmation');
+  assert.equal(saved[0].projectMemberId, 501);
+  assert.deepEqual(saved[0].repos, ['.']);
+  assert.equal(saved[0].confirm, true);
+  assert.equal(saved[0].scope, 'user');
+  assert.match(printed.at(-1), /Created project mapping for 501/);
+});
+
+test('/map --repo with a project name resolves it case-insensitively, then by unique substring', async () => {
+  for (const [line, expected] of [['/map --repo customer portal', 502], ['/map --repo . fair chem', 501]]) {
+    const saved = [];
+    const prompts = mapPrompts({ select: () => { throw new Error('no picker for a unique name'); } });
+    await executeManualCommand(parseManualCommand(line), createManualSession(), context({ cwd: '/work/app', workflows: mapWorkflows({ saved }), prompts }));
+    assert.equal(saved[0].projectMemberId, expected, line);
+    assert.match(prompts.asked.confirm[0], /^Map repo .*app to (Customer Portal|GKE Fair Chem System \(FCS\))\?$/);
+  }
+});
+
+test('/map with an ambiguous or unknown name shows the picker of matching projects', async () => {
+  const saved = [];
+  const printed = [];
+  const prompts = mapPrompts({ select: (input) => input.options[1].value });
+  await executeManualCommand(parseManualCommand('/map SCB portal'), createManualSession(), context({ workflows: mapWorkflows({ saved }), prompts, printed }));
+  assert.match(printed[0], /Project name "portal" is ambiguous\./);
+  assert.deepEqual(prompts.asked.select[0].options.map((option) => option.label), ['Customer Portal', 'Customer Portal Admin', 'Cancel']);
+  assert.equal(saved[0].projectMemberId, 503);
+  assert.deepEqual(saved[0].tickets, ['SCB']);
+  assert.equal(saved.suggestArgs, undefined, 'no repo, no suggestions');
+
+  const unknown = mapPrompts({ select: (input) => input.options.at(-1).value });
+  const unknownPrinted = [];
+  await executeManualCommand(parseManualCommand('/map --repo . nothing-like-this'), createManualSession(), context({ workflows: mapWorkflows(), prompts: unknown, printed: unknownPrinted }));
+  assert.equal(unknown.asked.select[0].options.length, MAP_PROJECTS.length + 1);
+  assert.deepEqual(unknownPrinted, ['Project name "nothing-like-this" was not found in your memberships.', 'Mapping cancelled.']);
+});
+
+test('/map --repo still opens the picker when suggestions fail; auth errors log in first', async () => {
+  const printed = [];
+  const prompts = mapPrompts({ select: () => null });
+  await executeManualCommand(parseManualCommand('/map --repo /work/x'), createManualSession(), context({
+    workflows: mapWorkflows({ suggestError: new Error('/work/x is not a git repository') }),
+    prompts,
+    printed
+  }));
+  assert.deepEqual(printed, ['No suggestions: /work/x is not a git repository', 'Mapping cancelled.']);
+
+  let logins = 0;
+  let suggestCalls = 0;
+  const workflows = {
+    ...mapWorkflows(),
+    loginResourceOptimiser: async () => { logins += 1; return { summary: 'auth' }; },
+    suggestProjectsForRepo: async () => {
+      suggestCalls += 1;
+      if (suggestCalls === 1) {
+        throw createAuthRequiredError();
+      }
+      return { suggestions: [] };
+    }
+  };
+  await executeManualCommand(parseManualCommand('/map --repo'), createManualSession(), context({ workflows, prompts: mapPrompts({ select: () => null }), printed: [] }));
+  assert.equal(logins, 1);
+  assert.equal(suggestCalls, 2);
+});
+
+test('/map without a select prompt lists the projects to choose by name', async () => {
+  const printed = [];
+  await executeManualCommand(parseManualCommand('/map --repo'), createManualSession(), context({
+    workflows: mapWorkflows({ suggestions: [{ ...MAP_FCS, score: 30, reasons: ['repo name matches FCS'] }] }),
+    prompts: confirmations([]),
+    printed
+  }));
+  assert.match(printed[0], /Re-run \/map with the project name:/);
+  assert.match(printed[0], /1\. GKE Fair Chem System \(FCS\) {2}\(repo name matches FCS\)\n {2}2\. Customer Portal/);
+  assert.equal(printed.at(-1), 'Mapping cancelled.');
+
+  await assert.rejects(
+    executeManualCommand(parseManualCommand('/map --repo'), createManualSession(), context({
+      workflows: { listLogworkProjects: async () => ({ projects: [] }) },
+      printed: []
+    })),
+    /No Resource Optimiser project memberships/
+  );
+});
+
+test('SelectPrompt renders its message, options and hints', () => {
+  const output = renderToString(h(SelectPrompt, {
+    message: 'Which RO project should repo /w/fcs map to?',
+    options: [{ value: 'a', label: 'GKE Fair Chem System (FCS)', hint: 'repo name matches FCS' }, { value: 'b', label: 'Cancel' }],
+    selectedIndex: 0,
+    onChange() {},
+    onResolve() {}
+  }));
+  assert.match(output, /Which RO project should repo \/w\/fcs map to\? · Esc cancel/);
+  assert.match(output, /› GKE Fair Chem System \(FCS\) · repo name matches FCS/);
+  assert.match(output, / {2}Cancel/);
+});
