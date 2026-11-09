@@ -4,7 +4,7 @@ Each version needs a `## [x.y.z]` section here before its version bump is
 pushed to `main`. The release workflow uses that section as the GitHub Release
 description.
 
-## [Unreleased]
+## [1.2.0] - 2026-11-09
 
 ### Added
 - **Commit drafts per project.** A project mapping can list git repos (`map_project` with `repos`, or `/map --repo` in the terminal UI). `draft_from_commits` / `logwork commits` pick each group's project from the repo mapping, else ticket/keyword mappings and that day's bookings. They split each project's own remaining hours (booked - logged), so no project is overbooked. The draft returns `projectOverrides` to pass to `log_work` unchanged, and `unmappedRepos` to map next.

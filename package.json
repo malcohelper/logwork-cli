@@ -1,6 +1,6 @@
 {
   "name": "logwork-cli",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Log work to Resource Optimiser and Jira from the terminal, an MCP server for AI IDEs, and a terminal UI.",
   "license": "UNLICENSED",
   "type": "module",
