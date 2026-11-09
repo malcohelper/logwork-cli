@@ -4,6 +4,24 @@ Each version needs a `## [x.y.z]` section here before its version bump is
 pushed to `main`. The release workflow uses that section as the GitHub Release
 description.
 
+## [Unreleased]
+
+### Added
+- **Commit drafts per project.** A project mapping can list git repos (`map_project` with `repos`, or `/map --repo` in the terminal UI). `draft_from_commits` / `logwork commits` pick each group's project from the repo mapping, else ticket/keyword mappings and that day's bookings. They split each project's own remaining hours (booked - logged), so no project is overbooked. The draft returns `projectOverrides` to pass to `log_work` unchanged, and `unmappedRepos` to map next.
+- **Duplicate guard in `log_work`.** The preview flags lines that match an existing RO entry (same date, worklog task, hours and description) or an earlier line in the batch. Apply then needs `allowDuplicates: true`; the terminal UI asks, defaulting to no.
+- **Commit-aware reminder.** When RO time is missing, the reminder adds today's commit count (for example "Hôm nay: 5 commit trong 2 repo") and suggests `logwork commits today`. Repos come from `logwork reminder enable --repo <path>` (or the MCP `reminder` tool) and from project mappings.
+- **Jira dry-run.** `LOGWORK_DRY_RUN=1` now also stubs Jira writes and reports a dry run; reads still hit Jira.
+
+### Changed
+- **Absolute Node path in MCP configs.** Printed configs use the absolute Node path instead of `node`, so IDEs started from the Dock (nvm installs) can start the server.
+- **Runtime file.** `logwork setup` records the Node it ran with in `runtime.json`.
+- **Stale Node warnings.** `logwork doctor` and `logwork reminder status` warn when the recorded Node, or the reminder's Node, is missing or stale.
+- **Internals:** `lib/api.mjs`, `lib/api-auth.mjs` and `lib/manual-ink-app.mjs` are split into smaller modules; the old import paths still work.
+- **Quality:**
+  - ESLint and test coverage thresholds run in CI.
+  - The test suite is hermetic: it ignores `LOGWORK_*` variables in the shell and never touches the real home.
+  - New tests cover the RO entry reader, prompts, terminal auth and `quick`.
+
 ## [1.1.1] - 2026-11-09
 
 ### Fixed
