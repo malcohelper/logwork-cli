@@ -26,7 +26,7 @@ logwork setup
 - installs the runtime to `~/.logwork-cli` (`%USERPROFILE%\.logwork-cli` on Windows),
 - links the `logwork` command,
 - offers to log in,
-- prints copy-ready MCP configs that use your real local path.
+- adds the `logwork` MCP server to the AI clients it finds (Claude Code, Cursor, Codex, VS Code, Google Antigravity). It asks once per client; answer yes. See [Set Up MCP](#set-up-mcp).
 
 ## Upgrading from logwork-helper
 
@@ -57,7 +57,7 @@ Most of the move is automatic:
 
 Two things you need to do yourself:
 
-- **IDE config:** replace the old `logwork-helper` MCP entry with the new `logwork` entry printed by `logwork setup` or `/mcp`.
+- **IDE config:** `logwork setup` replaces the old `logwork-helper` entry with the new `logwork` entry in the clients it can edit. For any other client, use the config printed by `logwork setup` or `/mcp`.
 - **MCP tool names:** the tool names changed. See the [old → new tool name table](docs/mcp-setup.md#tool-name-changes-from-logwork-helper).
 
 ## Log In
@@ -85,7 +85,9 @@ logwork reconcile       Compare RO and Jira hours by day (read-only)
 logwork history         Local apply history
 logwork login|logout|status [ro|jira]
 logwork skill install   Install the AI agent skill (Claude Code, Codex)
-logwork setup           Install the runtime and print MCP configs
+logwork setup           Install the runtime and add logwork to your MCP clients
+logwork mcp install     Add or update the logwork entry in your MCP clients
+logwork mcp status      Check each MCP client's logwork entry
 logwork mcp             Run the MCP stdio server (used by IDE configs)
 logwork reminder ...    Weekday logwork reminder
 logwork update ...      Check for or install a new version
@@ -192,30 +194,33 @@ The default tasks shared by all projects are:
 
 ## Set Up MCP
 
-`logwork setup` prints the configs. You can also open the terminal UI with `logwork` and type `/mcp` (or `/mcp cursor`, `/mcp antigravity`, `/mcp copilot`, `/mcp claude-code`, `/mcp codex`).
+Run `logwork setup` and answer yes for each client. It finds the clients you have and adds or updates the `logwork` server in each:
 
-Every client runs the same thing, `<node> ~/.logwork-cli/bin/logwork.mjs mcp`, under the server name `logwork`. The printed configs use the absolute path of your Node binary, because IDEs started from the Dock or Finder often do not see nvm's `node` on `PATH`:
+| Client | What setup changes |
+|---|---|
+| Claude Code | `claude mcp add --scope user logwork ...` (or `~/.claude.json` when the `claude` CLI is not on `PATH`) |
+| Cursor | `~/.cursor/mcp.json` |
+| Codex | `~/.codex/config.toml` |
+| VS Code | user `mcp.json` (`~/Library/Application Support/Code/User` on macOS, `%APPDATA%\Code\User` on Windows) |
+| Google Antigravity | `~/.gemini/antigravity/mcp_config.json` |
 
-```json
-{
-  "mcpServers": {
-    "logwork": {
-      "command": "/Users/you/.nvm/versions/node/v24.1.0/bin/node",
-      "args": ["/Users/you/.logwork-cli/bin/logwork.mjs", "mcp"]
-    }
-  }
-}
-```
-
-For Claude Code, run:
+It touches only the `logwork` entry, removes an old `logwork-helper` entry, and backs up each file first (`<file>.logwork-backup-<timestamp>`). A file it cannot parse safely (JSON with comments, unusual TOML) is left alone, and setup prints the snippet to paste instead.
 
 ```bash
-claude mcp add --transport stdio logwork -- "$(which node)" ~/.logwork-cli/bin/logwork.mjs mcp
+logwork mcp status            # which clients have a current logwork entry
+logwork mcp install           # add or update them later (asks per client)
+logwork mcp install --dry-run # show the changes without writing
+logwork setup --yes           # update every detected client without asking
+logwork setup --no-mcp-install
 ```
 
-If you upgrade or remove that Node (`nvm uninstall`, `brew upgrade node`), re-run `logwork setup` and paste the new config. `logwork doctor` warns when the recorded Node path is gone.
+The configs never name a Node version, so Node upgrades need no config change:
+- **macOS:** clients run `~/.logwork-cli/bin/logwork-launch mcp`. This small script, written by `logwork setup`, starts logwork with the first Node 22+ it finds: the Node that ran setup, `node` on `PATH`, the newest nvm Node, Volta or fnm, then Homebrew.
+- **Windows:** clients run `node.exe %USERPROFILE%\.logwork-cli\bin\logwork.mjs mcp` with a stable `node.exe`: the nvm-windows symlink (`%NVM_SYMLINK%\node.exe`) or `C:\Program Files\nodejs\node.exe`.
 
-Restart or reload the IDE's MCP tools after saving.
+For a client setup does not know, open the terminal UI with `logwork` and type `/mcp` (or `/mcp cursor`, `/mcp antigravity`, `/mcp copilot`, `/mcp claude-code`, `/mcp codex`) for a copy-ready config. [docs/mcp-setup.md](docs/mcp-setup.md) has the manual snippets.
+
+Restart or reload the IDE's MCP tools after a change.
 
 The server exposes 16 tools and one prompt (`log_from_commits`). It also sends `instructions` covering the approval rules, the line format and the recommended call order. Every write is **two calls to the same tool**:
 1. Call the tool without `confirm`. It returns a preview with a `batchId` or `previewId` and a summary.
@@ -328,7 +333,7 @@ Mở Terminal và chạy: logwork commits today (bản nháp từ commit)
 
 Repos listed on project mappings are used too. Run outside a git repo, `logwork commits today` falls back to these repos. If reading commits fails, the reminder shows the plain message.
 
-macOS uses a user `launchd` agent (`sg.vinova.logwork-cli.reminder`) and Windows uses Task Scheduler (`Logwork Reminder`). Neither schedule stores credentials. The schedule stores the absolute Node path; after upgrading or removing that Node, run `logwork reminder enable` (or `logwork setup`) again. `logwork reminder status` warns when that path no longer exists.
+macOS uses a user `launchd` agent (`sg.vinova.logwork-cli.reminder`) and Windows uses Task Scheduler (`Logwork Reminder`). Neither schedule stores credentials. On macOS the schedule runs the `logwork-launch` launcher, so Node upgrades do not break it. On Windows it runs a stable `node.exe`. A schedule from an older version that still runs a raw Node path is flagged by `logwork reminder status`; run `logwork setup` to re-register it.
 
 ## Reconcile RO And Jira
 

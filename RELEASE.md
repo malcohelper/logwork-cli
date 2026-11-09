@@ -64,8 +64,9 @@ The gate must pass all of the following:
 ## Manual Verification
 
 - Install from the packed tarball in a temporary directory.
-- Run `logwork setup --no-login`.
-- Confirm the printed MCP config uses server name `logwork` and `node ~/.logwork-cli/bin/logwork.mjs mcp`.
+- Run `logwork setup --no-login` with a temporary `HOME` and `LOGWORK_HOME`, so no real MCP client config is touched.
+- Confirm `~/.logwork-cli/bin/logwork-launch` exists and is executable (macOS), and that `logwork-launch --version` prints the package version.
+- Confirm `logwork mcp install --dry-run` lists the detected clients with server name `logwork` and command `~/.logwork-cli/bin/logwork-launch mcp` (Windows: `node.exe ...\bin\logwork.mjs mcp`), and that `logwork mcp status` reports them.
 - Run `logwork --help` and `logwork --version`.
 - Run `logwork update check --force` against the published npm version.
 - Run `logwork mcp` through an MCP client smoke test and confirm it lists the 16 tools (`get_logwork`, `draft_from_commits`, `list_projects`, `list_tasks`, `log_work`, `edit_entry`, `resubmit_entry`, `delete_entry`, `log_jira_work`, `get_jira_issue`, `reconcile`, `get_history`, `map_project`, `login`, `reminder`, `update`).

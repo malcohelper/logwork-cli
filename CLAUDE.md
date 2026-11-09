@@ -17,12 +17,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - `edit`, `delete`
   - `reconcile`, `history`
   - `auth`: `runLogin` / `runLogout` / `runStatus`, with target `ro|jira`
-  - `setup`: copies the runtime to `~/.logwork-cli`, `npm ci`, removes the global `logwork-helper`, `npm link`, re-registers the reminder, prints MCP configs
+  - `setup`: copies the runtime to `~/.logwork-cli`, `npm ci`, removes the global `logwork-helper`, `npm link`, writes `runtime.json` and the launcher, re-registers the reminder, then runs the MCP client install (`--yes`, `--no-mcp-install`; plan only when not on a TTY) and prints a per-client result. The manual snippet dump is only a fallback.
+  - `mcp`: no args starts the stdio server (nothing may reach stdout first); `install [--client x]... [--yes] [--dry-run]` and `status` are dispatched before it
   - `reminder`, `update`, `doctor`, `release`, `tui`
 - **`lib/`**: shared workflows, API clients and OS integration. Notable modules:
   - `config.mjs`
   - `mcp-server.mjs`: exports `startMcpServer` and the preview-cache helpers.
-  - `manual-mcp.mjs`: MCP config snippets.
+  - `manual-mcp.mjs`: MCP config snippets, built from a launch command `{ command, argsPrefix }`.
+  - `launcher.mjs`: `resolveLaunchCommand` (macOS/Linux: `<home>/bin/logwork-launch`; Windows: the nvm-windows symlink `node.exe` or the running `node.exe`, plus `<home>\bin\logwork.mjs`), the POSIX `sh` launcher script (recorded node, `command -v node`, newest nvm 22+, Volta/fnm, Homebrew; exit 127 when none), and `checkLaunchCommand` for doctor.
+  - `mcp-install.mjs`: detects Claude Code, Cursor, Codex, VS Code and Google Antigravity and adds/updates the `logwork` entry (Claude CLI `mcp add --scope user`, else parsed JSON merge or textual Codex TOML table replacement). Every file edit: timestamped backup, atomic write, refuse JSONC/unusual TOML, idempotent. All roots and runners are injectable via `createMcpInstallContext`.
   - `paths.mjs` and `legacy-migration.mjs`.
   - `api.mjs`: the Resource Optimiser client facade. It only re-exports the `ro-api-*` modules, so existing imports keep working:
     - `ro-api-http.mjs`: `apiFetch` and `ApiError`;
@@ -34,7 +37,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     - `ro-api-entries.mjs`: logwork entry reads and the create, resubmit and delete writes.
   - `api-auth.mjs`: the API-only Keycloak login flow and token exchange. Helpers live in `api-auth-support.mjs` (safe errors, URL checks), `api-auth-http.mjs` (cookie session, checked redirects), `api-auth-forms.mjs` (Keycloak HTML forms) and `api-auth-tokens.mjs` (RO token extraction). It re-exports their public names.
   - `manual-ink-app.mjs`: the Ink app shell (`ManualApp`, `runManualInkApp`, state, command execution). Its actions live in hooks: `manual-ink-wizard.mjs` (logwork wizard flow), `manual-ink-draft-actions.mjs` (saved drafts) and `manual-ink-task-editor.mjs` (task lines and edit/remove). `manual-ink-interaction.mjs` renders the bottom interaction area, and `manual-ink-session.mjs` holds the session preview helpers. Views are in `manual-ink-ui.mjs` and `manual-ink-auth.mjs`; `manual-ink-app.mjs` re-exports them.
-- `logwork mcp` (`node <home>/bin/logwork.mjs mcp`) is what IDE configs run, under the server name `logwork`.
+- `logwork mcp` is what IDE configs run, under the server name `logwork`: `<home>/bin/logwork-launch mcp` on macOS/Linux, `<node.exe> <home>\bin\logwork.mjs mcp` on Windows. Configs never name a Node version.
 
 The old git `commit-msg` hook, `install.mjs`, `hooks/`, `lib/protocol.mjs` and `lib/git-message.mjs` were removed.
 
@@ -55,11 +58,11 @@ User-facing CLI:
 - `logwork`, `logwork query`, `logwork quick`, `logwork edit`, `logwork delete`
 - `logwork reconcile`, `logwork history`
 - `logwork login|logout|status [ro|jira]`
-- `logwork setup`, `logwork mcp`, `logwork reminder`, `logwork update`, `logwork doctor`, `logwork release`
+- `logwork setup [--yes] [--no-mcp-install]`, `logwork mcp [install|status]`, `logwork reminder`, `logwork update`, `logwork doctor`, `logwork release`
 
 `LOGWORK_DRY_RUN=1` (checked with `isDryRun()` from `lib/config.mjs`) makes the RO write functions in `lib/ro-api-entries.mjs` (re-exported by `lib/api.mjs`) and every non-GET `jiraApiFetch` call in `lib/jira-api.mjs` return `{ dryRun: true, method, path, body }` instead of calling the API, with no token or headers. Reads still hit the API. The Jira apply then reports `status: 'dry_run'` and records `dry_run` entries in the apply ledger.
 
-`LOGWORK_HOME` relocates local state; `LOGWORK_HELPER_HOME` is still honored. The test bootstrap `test/helpers/setup.mjs` (loaded with `--import` by every test script) clears all `LOGWORK_*` variables from the shell and sets `LOGWORK_HOME` to a fresh temp dir per test process, so tests never read the real `~/.logwork-cli` and the legacy migration stays off. Tests may still set these variables themselves.
+`LOGWORK_HOME` relocates local state; `LOGWORK_HELPER_HOME` is still honored. The test bootstrap `test/helpers/setup.mjs` (loaded with `--import` by every test script) clears all `LOGWORK_*` variables from the shell and sets `LOGWORK_HOME` to a fresh temp dir per test process, so tests never read the real `~/.logwork-cli` and the legacy migration stays off. Tests may still set these variables themselves. MCP install, launcher and reminder tests must pass a temp user home (or an in-memory `fsApi`) and fake command runners; never run a real `claude mcp`, launchd, schtasks or setup against the machine.
 
 ## Logwork entry model (important)
 
@@ -128,7 +131,9 @@ Rules:
   - diagnostics;
   - the update cache;
   - the reminder config (including optional commit-summary `repos`);
-  - `runtime.json`, written by `logwork setup` (`lib/node-runtime.mjs`): the absolute node path and version. MCP configs and the reminder schedule store an absolute node path (`process.execPath`); `logwork doctor` and `logwork reminder status` warn when it is gone or stale.
+  - `runtime.json`, written by `logwork setup` (`lib/node-runtime.mjs`): the absolute node path and version. The launcher tries that node first.
+  - `bin/logwork-launch` (macOS/Linux, not in git): MCP configs and the launchd plist run it. Windows configs and the scheduled task store a `node.exe` path instead. `logwork doctor` and `logwork reminder status` check the launcher (`--version`, which Node it picks), and flag a schedule that still runs a raw node path (`inspectScheduledCommand` status `legacy`).
+  - MCP client config backups `<file>.logwork-backup-<YYYYMMDDHHmmss>` live next to each edited client config, not in the helper home.
 - **Migration from logwork-helper:**
   - `lib/legacy-migration.mjs` copies state files once from `~/.logwork-helper`, renaming `.logwork-helper.json` to `.logwork.json`. It writes the marker `.migrated-from-logwork-helper`, never overwrites existing files, and is skipped when a custom home is set.
   - `credential-store.mjs#withLegacyService` reads the old `logwork-helper` service on a miss and copies the value forward. `delete` clears both services.

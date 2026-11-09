@@ -19,6 +19,8 @@ npm install -g logwork-cli
 logwork setup
 ```
 
+`logwork setup` also writes the launcher (`~/.logwork-cli/bin/logwork-launch` on macOS) and adds the `logwork` MCP server to the clients it finds (Claude Code, Cursor, Codex, VS Code, Google Antigravity), asking once per client. Each edited config is backed up first. Options: `--yes` (no questions), `--no-mcp-install` (do not touch MCP configs). Check or redo it later with `logwork mcp status` and `logwork mcp install`; see [MCP setup](mcp-setup.md#automatic-setup).
+
 Upgrading from `logwork-helper`: run `npm uninstall -g logwork-helper` first. Both packages provide a `logwork` command, and npm refuses to overwrite it (`EEXIST`). If `~/.logwork-helper` was already deleted, the uninstall leaves broken links behind; remove them with `P="$(npm prefix -g)"; rm -f "$P/bin/logwork" "$P"/bin/logwork-helper* "$P/lib/node_modules/logwork-helper"`, or run `npx logwork-cli@latest setup`, which removes them.
 
 Authenticate each target from Terminal:
@@ -461,8 +463,10 @@ Behavior:
 - Missing auth produces an actionable notification without exposing API details.
 - macOS uses a user `launchd` agent (`sg.vinova.logwork-cli.reminder`).
 - Windows uses an interactive user Task Scheduler task (`Logwork Reminder`).
-- The scheduler runs `<absolute node path> ~/.logwork-cli/bin/logwork.mjs reminder run --home ~/.logwork-cli`, using the Node that ran `reminder enable` or `logwork setup`.
-- If that Node is removed or replaced (`nvm uninstall`, `brew upgrade node`), the schedule still looks installed but cannot run. `logwork reminder status` and `logwork doctor` warn about it; run `logwork reminder enable` or `logwork setup` to re-register it with the current Node.
+- The scheduler runs the same command as the MCP configs with `reminder run --home ~/.logwork-cli`:
+  - macOS: `~/.logwork-cli/bin/logwork-launch`, which finds a Node 22+ itself, so a Node upgrade does not break the reminder;
+  - Windows: a stable `node.exe` (the nvm-windows symlink, or `C:\Program Files\nodejs\node.exe`) plus `~/.logwork-cli/bin/logwork.mjs`.
+- `logwork reminder status` and `logwork doctor` warn when the scheduled command is missing, when the launcher finds no usable Node, and when a schedule from an older version still runs a raw Node path. Run `logwork setup` (or `logwork reminder enable`) to re-register it.
 - Enabling or disabling the reminder also removes a leftover `logwork-helper` schedule.
 
 Commit evidence:
@@ -575,6 +579,8 @@ The release doctor checks package version consistency, self-dependencies, clean/
 | Update cache | `.logwork-cli/update-state.json` | No |
 | Reminder config/state | `.logwork-cli/reminder.json`, `.logwork-cli/reminder-state.json` | No |
 | Runtime Node record | `.logwork-cli/runtime.json` (Node path and version from `logwork setup`) | No |
+| Launcher (macOS) | `.logwork-cli/bin/logwork-launch`, written by `logwork setup` | No |
+| MCP config backups | `<client config>.logwork-backup-<timestamp>`, next to each edited client config | No |
 | RO/Jira sessions | OS credential store, service `logwork-cli` | Yes |
 
 The helper home is `~/.logwork-cli` on macOS and `%USERPROFILE%\.logwork-cli` on Windows. `LOGWORK_HOME` overrides it; the older `LOGWORK_HELPER_HOME` is still honored.
@@ -624,7 +630,8 @@ Recommended end-user checks after installation:
 - Partial Both result: inspect `/history both`, then preview only the missing target.
 - npm `E401`: refresh npm login with `npm login --registry=https://registry.npmjs.org/`.
 - Reminder config/scheduler mismatch: rerun `reminder enable` or `reminder disable`.
-- Reminder or MCP Node path gone after a Node upgrade: run `logwork setup` (refreshes `runtime.json`, the reminder and the printed MCP configs), then paste the new MCP config.
+- MCP client or reminder does not start after a Node change: run `logwork doctor` or `logwork mcp status`. `logwork setup` rewrites the launcher, re-registers the reminder and updates the MCP configs it can edit; paste the printed snippet only for a client it reports as "could not update automatically".
+- `logwork mcp install` reports "could not update automatically": the file has comments, trailing commas or an unusual TOML layout. Paste the printed snippet by hand, or remove the comments and run it again.
 - MCP after update: restart or reload the MCP connection.
 
 For client configuration details, see [MCP setup](mcp-setup.md). For security boundaries and stored-data details, see [Security and auth](security.md). For copy-ready task recipes, see [Quick recipes](recipes.md).

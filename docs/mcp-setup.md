@@ -1,81 +1,130 @@
 # MCP Setup
 
-`logwork setup` prints copy-ready configs that use your real path. You can also open the terminal UI with `logwork` and type `/mcp`, or `/mcp <client>` for a single client.
+Run `logwork setup` and answer yes for each client. That is the whole setup: you do not edit MCP JSON or TOML yourself, and you do not need to know where Node is installed.
 
 For the full RO/Jira/Both processing model, mapping, reconciliation, history, reminders and updates, see the [operations guide](operations-guide.md).
 
-Every client runs `<absolute path to node> <home>/.logwork-cli/bin/logwork.mjs mcp` under the server name `logwork`.
+## Automatic Setup
 
-Both paths are absolute:
-- The entry is `bin/logwork.mjs` instead of the `logwork` command, because GUI IDEs often start without the npm global bin directory on `PATH`.
-- The `command` is the absolute path of your Node binary instead of a bare `node`. Cursor or VS Code started from the Dock, Finder or Start menu usually does not get the `PATH` that nvm (or another version manager) sets up in your shell, so `node` is not found and the server never starts.
+`logwork setup` (and `logwork mcp install` at any time later) looks for these clients and adds or updates the `logwork` server in each one it finds. A client counts as found only when its config directory or CLI exists; setup never creates config for a client you do not have.
 
-`logwork setup` and `/mcp` print both paths for the Node that ran them (`process.execPath`). To find it yourself, run `which node` (macOS) or `(Get-Command node).Source` (PowerShell).
+| Client | Detected by | What is changed |
+|---|---|---|
+| Claude Code | `claude` on `PATH`, or `~/.claude.json` | `claude mcp remove --scope user logwork`, then `claude mcp add --scope user logwork -- <command> <args>`. Without the CLI: the top-level `mcpServers` in `~/.claude.json`. |
+| Cursor | `~/.cursor` | `mcpServers.logwork` in `~/.cursor/mcp.json` |
+| Codex | `~/.codex` | the `[mcp_servers.logwork]` table in `~/.codex/config.toml` |
+| VS Code (user) | `~/Library/Application Support/Code/User` (macOS), `%APPDATA%\Code\User` (Windows) | `servers.logwork` (`"type": "stdio"`) in `mcp.json` there |
+| Google Antigravity | `~/.gemini/antigravity` | `mcpServers.logwork` in `~/.gemini/antigravity/mcp_config.json` |
 
-If Node is upgraded or moved (`nvm uninstall`, `brew upgrade node`, a new installer), the old path stops working. Re-run `logwork setup` and paste the new config. `logwork doctor` warns when the Node recorded by setup no longer exists.
+How files are edited:
+- Each file is read, parsed and merged. Only the `logwork` entry changes; other servers and settings stay as they are. Extra fields you added to the `logwork` entry (such as `env`) are kept, except in Codex, where the whole `[mcp_servers.logwork]` table (with sub-tables such as `[mcp_servers.logwork.env]`) is replaced.
+- An old `logwork-helper` entry is removed. In Claude Code, a stale project-scope (`--scope local`) `logwork` entry is removed too, because it would hide the user-scope one.
+- Before the first change, the file is copied to `<file>.logwork-backup-<YYYYMMDDHHmmss>` next to it. Then the new file is written atomically. A symlinked config is written through the link.
+- When the entry is already current, nothing is written and no backup is made.
+- When a file does not parse cleanly (JSON with comments or trailing commas, TOML with an unusual layout such as an inline `mcp_servers` table), it is not touched. The result says "could not update automatically" and shows the snippet to paste.
 
-The examples use `/Users/<user>` and `<absolute path to node>` as placeholders. With nvm on macOS the Node path looks like `/Users/<user>/.nvm/versions/node/v24.x.y/bin/node`; with Homebrew, `/opt/homebrew/bin/node`. On Windows, use the paths printed by `logwork setup` or `/mcp`, for example `C:\\Program Files\\nodejs\\node.exe` and `C:\\Users\\<user>\\.logwork-cli\\bin\\logwork.mjs` inside JSON or TOML strings.
+Commands:
 
-## Cursor / Google Antigravity
+```bash
+logwork mcp status                     # per client: current, stale (and why), missing, leftover logwork-helper
+logwork mcp install                    # asks once per client that needs a change (default: yes)
+logwork mcp install --client cursor    # only some clients (repeatable: claude, cursor, codex, vscode, antigravity)
+logwork mcp install --dry-run          # show the planned changes, write nothing
+logwork mcp install --yes              # no questions
+logwork setup --yes                    # setup, updating every detected client without asking
+logwork setup --no-mcp-install         # setup without touching MCP configs
+```
 
-Cursor MCP settings, or `~/.gemini/antigravity/mcp_config.json`:
+When setup does not run in a terminal (for example from `logwork update`), it only prints what `logwork mcp install` would change.
+
+`logwork doctor` includes the same per-client check.
+
+## What The Configs Run
+
+Every client runs one command under the server name `logwork`. The command never names a Node version, so `nvm install`, `brew upgrade node` or a new Node installer do not break it:
+
+- **macOS:** `~/.logwork-cli/bin/logwork-launch mcp`. `logwork setup` writes this small `sh` script. It starts `~/.logwork-cli/bin/logwork.mjs` with the first Node 22+ it finds, in this order:
+  1. the Node that ran `logwork setup`;
+  2. `node` on `PATH`;
+  3. the newest nvm Node (`$NVM_DIR` or `~/.nvm`);
+  4. Volta (`~/.volta/bin/node`) and the fnm default;
+  5. `/opt/homebrew/bin/node`, `/usr/local/bin/node`.
+
+  If none is found, it prints one line ("install Node.js 22 or newer, or run `logwork setup` again") and exits with code 127.
+- **Windows:** `<node.exe> %USERPROFILE%\.logwork-cli\bin\logwork.mjs mcp`. GUI clients would need `cmd /c` to run a `.cmd` launcher, so the config uses a stable `node.exe` instead:
+  - when Node runs from an nvm-windows version folder and `NVM_SYMLINK` is set, `%NVM_SYMLINK%\node.exe`, which follows `nvm use`;
+  - otherwise the Node that ran setup, usually `C:\Program Files\nodejs\node.exe`, which an installer upgrade keeps.
+
+  With any other Node location (Scoop, a portable zip), re-run `logwork setup` after moving or upgrading Node.
+
+The paths are absolute because GUI IDEs (started from the Dock, Finder or Start menu) often do not get your shell's `PATH`, so a bare `node` or `logwork` would not be found.
+
+## Manual Setup (Fallback)
+
+Use this only for a client that `logwork setup` does not support, or one whose file it could not update. `logwork setup` prints the snippet for each client it could not update. You can also open the terminal UI with `logwork` and type `/mcp`, or `/mcp <client>` for a single client; both print your real paths.
+
+The examples use `/Users/<user>` as a placeholder. On Windows, use the paths printed by `logwork setup` or `/mcp`, for example `"command": "C:\\Program Files\\nodejs\\node.exe"` and `"args": ["C:\\Users\\<user>\\.logwork-cli\\bin\\logwork.mjs", "mcp"]` inside JSON or TOML strings.
+
+### Cursor / Google Antigravity
+
+`~/.cursor/mcp.json`, or `~/.gemini/antigravity/mcp_config.json`:
 
 ```json
 {
   "mcpServers": {
     "logwork": {
-      "command": "<absolute path to node>",
-      "args": ["/Users/<user>/.logwork-cli/bin/logwork.mjs", "mcp"]
+      "command": "/Users/<user>/.logwork-cli/bin/logwork-launch",
+      "args": ["mcp"]
     }
   }
 }
 ```
 
-## Codex
+### Codex
 
 `~/.codex/config.toml`, or project `.codex/config.toml`:
 
 ```toml
 [mcp_servers.logwork]
-command = "<absolute path to node>"
-args = ["/Users/<user>/.logwork-cli/bin/logwork.mjs", "mcp"]
+command = "/Users/<user>/.logwork-cli/bin/logwork-launch"
+args = ["mcp"]
 startup_timeout_sec = 20
 tool_timeout_sec = 120
 ```
 
-## GitHub Copilot / VS Code
+### GitHub Copilot / VS Code
 
-Workspace `.vscode/mcp.json`, or your VS Code user MCP config:
+Workspace `.vscode/mcp.json`, or your VS Code user `mcp.json`:
 
 ```json
 {
   "servers": {
     "logwork": {
       "type": "stdio",
-      "command": "<absolute path to node>",
-      "args": ["/Users/<user>/.logwork-cli/bin/logwork.mjs", "mcp"]
+      "command": "/Users/<user>/.logwork-cli/bin/logwork-launch",
+      "args": ["mcp"]
     }
   }
 }
 ```
 
-## Claude Code
+### Claude Code
 
 ```bash
-claude mcp add --transport stdio logwork -- "<absolute path to node>" "/Users/<user>/.logwork-cli/bin/logwork.mjs" mcp
+claude mcp add --transport stdio --scope user logwork -- ~/.logwork-cli/bin/logwork-launch mcp
 ```
 
 From Windows PowerShell:
 
 ```powershell
-claude mcp add --transport stdio logwork -- 'C:\Program Files\nodejs\node.exe' 'C:\Users\<user>\.logwork-cli\bin\logwork.mjs' mcp
+claude mcp add --transport stdio --scope user logwork -- 'C:\Program Files\nodejs\node.exe' 'C:\Users\<user>\.logwork-cli\bin\logwork.mjs' mcp
 ```
 
 Or add the Cursor JSON above to the project `.mcp.json`.
 
-Templates are also in [examples/mcp](../examples/mcp/).
+Templates (macOS form) are also in [examples/mcp](../examples/mcp/); on Windows, use the paths printed by `/mcp`.
 
-If you used `logwork-helper` before, delete its old MCP entry. It points at `~/.logwork-helper/mcp-server.mjs`, which is the old runtime.
+If you used `logwork-helper` before and edit configs by hand, delete its old MCP entry. It points at `~/.logwork-helper/mcp-server.mjs`, which is the old runtime.
 
 ## Exposed Tools
 

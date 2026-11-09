@@ -50,6 +50,7 @@ test('generateDiagnosticsReport writes sanitized support report', async () => {
 
     const outputPath = join(dir, 'diagnostics', 'report.txt');
     const result = await generateDiagnosticsReport({
+      mcpClientsFn: async () => [],
       outputPath,
       now: () => new Date('2026-06-09T00:00:00.000Z'),
       cwd,
@@ -124,6 +125,7 @@ test('generateDiagnosticsReport can include mapping details with explicit opt-in
 
     const outputPath = join(dir, 'diagnostics', 'report.txt');
     await generateDiagnosticsReport({
+      mcpClientsFn: async () => [],
       outputPath,
       cwd,
       includeMappingDetails: true,

@@ -109,7 +109,9 @@ test('logwork --version prints the package version', () => {
 });
 
 const HELP_CASES = [
-  [['setup', '--help'], [/logwork setup \[--login\|--no-login\]/, /prints\nMCP configs|MCP configs/, /carried over automatically/]],
+  [['setup', '--help'], [/logwork setup \[--yes\] \[--no-mcp-install\] \[--login\|--no-login\]/, /MCP server/, /backed up first/, /carried over automatically/]],
+  [['mcp', '--help'], [/logwork mcp install \[--client claude\|cursor\|codex\|vscode\|antigravity\]\.\.\. \[--yes\] \[--dry-run\]/, /logwork mcp status/, /logwork-backup-<timestamp>/]],
+  [['mcp', 'install', '--help'], [/logwork mcp install/]],
   [['login', '--help'], [/logwork login \[ro\|jira\]/, /Personal Access Token/, /never in files or command arguments/]],
   [['status', '--help'], [/logwork status \[ro\|jira\]/]],
   [['doctor', '--help'], [/logwork doctor/, /sanitized support report/]],
@@ -139,7 +141,8 @@ for (const [args, patterns] of HELP_CASES) {
 
 test('logwork doctor writes a sanitized report', () => {
   const dir = mkdtempSync(join(tmpdir(), 'logwork-doctor-cli-'));
-  const result = runCli(['doctor'], { env: { ...process.env, LOGWORK_HOME: dir } });
+  // A temp HOME keeps the MCP client check away from the real IDE configs.
+  const result = runCli(['doctor'], { env: { ...process.env, LOGWORK_HOME: dir, HOME: dir, USERPROFILE: dir, APPDATA: dir } });
 
   assert.equal(result.status, 0);
   assert.match(result.stdout, /Diagnostics report written to/);
@@ -270,9 +273,12 @@ test('Jira login command validates via injected auth and redacts failures', asyn
 });
 
 test('setup-user parser supports login flags', () => {
-  assert.deepEqual(parseSetupUserArgs(['--login']), { loginMode: 'required' });
-  assert.deepEqual(parseSetupUserArgs(['--no-login']), { loginMode: 'skip' });
-  assert.deepEqual(parseSetupUserArgs([]), { loginMode: 'prompt' });
+  assert.deepEqual(parseSetupUserArgs(['--login']), { loginMode: 'required', yes: false, mcpInstall: true });
+  assert.deepEqual(parseSetupUserArgs(['--no-login']), { loginMode: 'skip', yes: false, mcpInstall: true });
+  assert.deepEqual(parseSetupUserArgs([]), { loginMode: 'prompt', yes: false, mcpInstall: true });
+  assert.deepEqual(parseSetupUserArgs(['--yes', '--no-login']), { loginMode: 'skip', yes: true, mcpInstall: true });
+  assert.deepEqual(parseSetupUserArgs(['-y']), { loginMode: 'prompt', yes: true, mcpInstall: true });
+  assert.deepEqual(parseSetupUserArgs(['--no-mcp-install']), { loginMode: 'prompt', yes: false, mcpInstall: false });
   assert.throws(() => parseSetupUserArgs(['--unknown']), /Unknown setup option/);
 });
 
@@ -303,9 +309,15 @@ test('setup-user runtime installs dependencies before linking global binaries', 
       calls.push('auth');
       return null;
     },
+    runtimeInfoFn: async () => calls.push('runtime'),
+    launcherFn: async () => calls.push('launcher'),
     reminderFn: async () => {
       calls.push('reminder');
       return null;
+    },
+    mcpInstallFn: async () => {
+      calls.push('mcp');
+      return { mode: 'skipped' };
     },
     printFn: async (targetDir, authResult, linkResult, cleanupResult) => {
       calls.push('print');
@@ -314,7 +326,7 @@ test('setup-user runtime installs dependencies before linking global binaries', 
     }
   });
 
-  assert.deepEqual(calls, ['mkdir', 'copy', 'cleanup', 'install', 'link', 'auth', 'reminder', 'print']);
+  assert.deepEqual(calls, ['mkdir', 'copy', 'cleanup', 'install', 'link', 'auth', 'runtime', 'launcher', 'reminder', 'mcp', 'print']);
   assert.deepEqual(printedLinkResult, {
     linked: true,
     commandAvailable: true
@@ -479,7 +491,7 @@ test('setup-user checklist omits auth retry after successful login', () => {
 
   assert.match(output, /Install status/);
   assert.match(output, /Next steps/);
-  assert.match(output, /MCP config/);
+  assert.match(output, /Manual MCP config/);
   assert.match(output, /Verify/);
   assert.match(output, /Safety/);
   assert.match(output, /- Auth: completed/);
@@ -489,7 +501,8 @@ test('setup-user checklist omits auth retry after successful login', () => {
   assert.match(output, /GitHub Copilot \/ VS Code mcp\.json:/);
   assert.match(output, /target-logwork-cli/);
   assert.match(output, /"logwork": \{/);
-  assert.match(output, /bin(\/|\\\\)logwork\.mjs",\n\s+"mcp"/);
+  // macOS/Linux configs run the launcher; Windows runs node.exe with the entry.
+  assert.match(output, process.platform === 'win32' ? /bin\\\\logwork\.mjs",\n\s+"mcp"/ : /bin\/logwork-launch",\n\s+"args": \[\n\s+"mcp"/);
 });
 
 test('setup checklist uses the Windows credential store on Windows', () => {
@@ -614,5 +627,5 @@ function makeJwt() {
 }
 
 function nextStepsSection(output) {
-  return String(output).match(/Next steps\n([\s\S]*?)\n\nMCP config/)?.[1] || '';
+  return String(output).match(/Next steps\n([\s\S]*?)\n\nMCP server/)?.[1] || '';
 }

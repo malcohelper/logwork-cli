@@ -113,11 +113,30 @@ The runtime and local state live in `~/.logwork-cli` (`%USERPROFILE%\.logwork-cl
 | `update-state.json` | Update check cache: package name, latest SemVer, and check timestamp. Expires after 24 hours and contains no npm credentials. |
 | `reminder.json`, `reminder-state.json` | Reminder config: enabled state, local time, target, weekdays and optional git repo paths for the commit summary. Last-run state: sanitized timestamps and status summaries. |
 | `runtime.json` | The Node path and version `logwork setup` ran with, its install time and the package version. |
+| `bin/logwork-launch` (macOS) | The launcher MCP configs and the reminder run. A `sh` script with the runtime path and the recorded Node path, nothing else. |
 | `diagnostics/` | Sanitized diagnostics reports from `logwork doctor`. |
 
 The apply ledger stores the target, flow target, batch ID, timestamp, workspace path, entry metadata, and submitted/failed/blocked status. It does not store credentials, cookies, or raw API responses, and token-like error text is redacted before writing.
 
-The macOS launch agent and Windows scheduled task contain only fixed Node and script paths (`bin/logwork.mjs reminder run`). They never contain RO tokens, Jira PATs, passwords, or API responses.
+The macOS launch agent runs `bin/logwork-launch reminder run`, and the Windows scheduled task runs a fixed `node.exe` with `bin/logwork.mjs reminder run`. They never contain RO tokens, Jira PATs, passwords, or API responses.
+
+## MCP Client Configs
+
+`logwork setup` and `logwork mcp install` edit the MCP config of the clients they find, after asking (or with `--yes`):
+
+| Client | File or command |
+| --- | --- |
+| Claude Code | `claude mcp remove` / `claude mcp add --scope user` (or `~/.claude.json` without the CLI) |
+| Cursor | `~/.cursor/mcp.json` |
+| Codex | `~/.codex/config.toml` |
+| VS Code | user `mcp.json` (`~/Library/Application Support/Code/User`, `%APPDATA%\Code\User`) |
+| Google Antigravity | `~/.gemini/antigravity/mcp_config.json` |
+
+- Only the `logwork` server entry is written, plus removal of an old `logwork-helper` entry (and, in Claude Code, a stale project-scope `logwork` entry). Other servers and settings are kept.
+- The entry holds only `command` and `args` (the launcher or `node.exe`, the runtime path and `mcp`). No token, PAT, password, cookie or email is ever written to an MCP config.
+- Before changing a file, it is copied to `<file>.logwork-backup-<YYYYMMDDHHmmss>` in the same folder, with the same permissions as the original. The new file is written atomically. Backups are never deleted automatically; remove them when you no longer need them. A backup can contain other servers' settings (for example API keys in their `env`), exactly as the original file does.
+- A file that does not parse cleanly (comments, trailing commas, unusual TOML) is never written; the snippet is printed instead.
+- `logwork mcp install --dry-run` and `logwork mcp status` only read.
 
 ## Safety Model
 
