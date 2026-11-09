@@ -10,41 +10,56 @@ import {
 import * as ui from '../lib/ui.mjs';
 import { todayLocalDateISO } from '../lib/util.mjs';
 
+const QUICK_API = { addLogtime, fetchWorklogTasksForProject, getTodayTimesheetProjects };
+
 // `logwork quick [-m "what you did"]`: log one Resource Optimiser entry for
 // today with guided prompts (project -> worklog task -> description -> hours).
-export async function run(argv = []) {
+// The second argument of run and the options of runQuickLog are test seams;
+// the CLI uses the defaults.
+export async function run(argv = [], {
+  quickLog = runQuickLog,
+  quickUi = ui,
+  showIntro = intro,
+  print = console.log
+} = {}) {
   const { message, help } = parseQuickArgs(argv);
   if (help) {
-    console.log(formatQuickHelp());
+    print(formatQuickHelp());
     return 0;
   }
 
   try {
-    intro('Logwork quick');
-    const result = await runQuickLog({ message });
-    ui.showSuccess(result.dryRun
+    showIntro('Logwork quick');
+    const result = await quickLog({ message });
+    quickUi.showSuccess(result.dryRun
       ? 'DRY RUN: payload generated; no API write performed.'
       : 'Logwork submitted.');
     return 0;
   } catch (error) {
-    ui.showError(error);
+    quickUi.showError(error);
     return 1;
   }
 }
 
-export async function runQuickLog({ message = '' } = {}) {
-  const localDateISO = todayLocalDateISO();
-  let session = await openSession();
+export async function runQuickLog({
+  message = '',
+  quickUi = ui,
+  openSession: open = openSession,
+  api = QUICK_API,
+  today = todayLocalDateISO
+} = {}) {
+  const localDateISO = today();
+  let session = await open();
 
   let projects;
   try {
-    projects = await loadBookedProjects(session, localDateISO);
+    projects = await loadBookedProjects(session, localDateISO, api);
   } catch (error) {
     if (!isUnauthorized(error)) {
       throw error;
     }
-    session = await openSession({ forceLogin: true });
-    projects = await loadBookedProjects(session, localDateISO);
+    session = await open({ forceLogin: true });
+    projects = await loadBookedProjects(session, localDateISO, api);
   }
 
   const daySummaries = projects.map((project) => ({
@@ -52,8 +67,8 @@ export async function runQuickLog({ message = '' } = {}) {
     totalHours: project.loggedHours,
     ok: true
   }));
-  const project = await ui.chooseProject(projects, daySummaries);
-  const tasks = (await fetchWorklogTasksForProject(session.token, project.projectId)).map((task) => ({
+  const project = await quickUi.chooseProject(projects, daySummaries);
+  const tasks = (await api.fetchWorklogTasksForProject(session.token, project.projectId)).map((task) => ({
     taskId: task.id,
     name: task.name,
     typeOfWork: task.typeOfWork || 'other',
@@ -63,11 +78,11 @@ export async function runQuickLog({ message = '' } = {}) {
   if (!tasks.length) {
     throw new Error(`No worklog tasks are available for ${project.projectName}.`);
   }
-  const task = await ui.chooseTask(tasks);
-  const description = await ui.chooseMessageSource(message);
-  const hours = await ui.askHours(CONFIG.defaultHours);
+  const task = await quickUi.chooseTask(tasks);
+  const description = await quickUi.chooseMessageSource(message);
+  const hours = await quickUi.askHours(CONFIG.defaultHours);
 
-  await ui.confirmSubmit({
+  await quickUi.confirmSubmit({
     projectName: project.projectName,
     hours,
     taskName: task.name,
@@ -88,13 +103,13 @@ export async function runQuickLog({ message = '' } = {}) {
   };
 
   try {
-    return await addLogtime(session.token, entry);
+    return await api.addLogtime(session.token, entry);
   } catch (error) {
     if (!isUnauthorized(error)) {
       throw error;
     }
-    session = await openSession({ forceLogin: true });
-    return addLogtime(session.token, entry);
+    session = await open({ forceLogin: true });
+    return api.addLogtime(session.token, entry);
   }
 }
 
@@ -150,8 +165,8 @@ async function openSession({ forceLogin = false } = {}) {
   return { token, userId: getUserIdFromJwt(token) };
 }
 
-async function loadBookedProjects(session, localDateISO) {
-  const projects = await getTodayTimesheetProjects(session.token, session.userId, localDateISO);
+async function loadBookedProjects(session, localDateISO, api) {
+  const projects = await api.getTodayTimesheetProjects(session.token, session.userId, localDateISO);
   if (!projects.length) {
     throw new Error(`You have no booked project on ${localDateISO}.`);
   }
