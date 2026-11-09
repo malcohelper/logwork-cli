@@ -383,10 +383,12 @@ test('repo paths are resolved, trimmed and compared case-insensitively only on W
 test('upsertProjectMapping merges repos like tickets and stores repo roots', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'logwork-helper-test-'));
   const home = await useTempHelperHome();
+  // Repo paths are resolved against cwd, which on Windows CI can be on a
+  // different drive than the process, so build the keys the same way.
   const roots = new Map([
-    [resolve('/work/app/packages/web'), '/work/app'],
-    [resolve('/work/app'), '/work/app'],
-    [resolve('/work/api'), '/work/api']
+    [resolve(cwd, '/work/app/packages/web'), '/work/app'],
+    [resolve(cwd, '/work/app'), '/work/app'],
+    [resolve(cwd, '/work/api'), '/work/api']
   ]);
   const resolveRepoRoot = async (path) => {
     if (!roots.has(path)) {

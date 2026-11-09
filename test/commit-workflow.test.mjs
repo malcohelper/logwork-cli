@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { createAuthRequiredError } from '../lib/auth-errors.mjs';
 import {
   allocateHours,
@@ -350,7 +350,8 @@ test('draft allocates each project its own remaining hours and returns projectOv
   assert.ok(parsed.entries.some((entry) => entry.date === '2026-11-06'), 'ids continue across days');
   assert.match(result.summary, /Pass projectOverrides to log_work/);
 
-  assert.deepEqual(result.unmappedRepos, [repoRoot(sharedRepo.dir)]);
+  // git prints C:/... on Windows; drafts store the resolved form (C:\...).
+  assert.deepEqual(result.unmappedRepos, [resolve(repoRoot(sharedRepo.dir))]);
   assert.match(result.summary, /offer map_project with repos/);
 });
 
