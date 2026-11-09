@@ -2,7 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { lstat, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+// Most tests run the client logic as macOS (platform: 'darwin'), which builds
+// paths with posix separators; build the expected paths the same way so the
+// suite also passes on Windows runners.
+import { posix } from 'node:path';
+
+const { dirname, join } = posix;
 import {
   applyMcpClientPlan,
   claudeAddArgs,

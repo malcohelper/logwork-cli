@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+// These tests run the client logic as macOS (platform: 'darwin'), which builds
+// paths with posix separators; build the expected paths the same way so the
+// suite also passes on Windows runners.
+import { posix } from 'node:path';
+
+const { join } = posix;
 import { formatMcpInstallResults, parseMcpInstallArgs, prepareRuntimeLauncher, runMcpInstall, runMcpStatus } from '../commands/mcp.mjs';
 import { formatSetupUserInstructions, installMcpClients } from '../commands/setup.mjs';
 import { createMcpInstallContext } from '../lib/mcp-install.mjs';

@@ -375,7 +375,8 @@ test('doctor reports the launcher, a missing or stale node path with the fix, an
         { label: 'Codex', status: 'current', reason: '', legacy: false, localScopes: 0 }
       ]
     });
-    const report = await readFile(outputPath, 'utf8');
+    // The report uses the OS line ending (CRLF on Windows).
+    const report = (await readFile(outputPath, 'utf8')).replace(/\r\n/g, '\n');
     assert.match(report, /# Node Path/);
     assert.match(report, /launchCommand: C:\\Program Files\\nodejs\\node\.exe C:\\Users/);
     assert.match(report, /launchStatus: ok/);
