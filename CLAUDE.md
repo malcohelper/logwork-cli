@@ -24,6 +24,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - `mcp-server.mjs`: exports `startMcpServer` and the preview-cache helpers.
   - `manual-mcp.mjs`: MCP config snippets.
   - `paths.mjs` and `legacy-migration.mjs`.
+  - `api.mjs`: the Resource Optimiser client facade. It only re-exports the `ro-api-*` modules, so existing imports keep working:
+    - `ro-api-http.mjs`: `apiFetch` and `ApiError`;
+    - `ro-api-fields.mjs`: candidate field readers for loosely shaped responses;
+    - `ro-api-diagnostics.mjs`: normalization diagnostics;
+    - `ro-api-projects.mjs`: project memberships and legacy day logs;
+    - `ro-api-timesheet.mjs`: timesheet ranges (booked and logged hours);
+    - `ro-api-tasks.mjs`: the worklog task catalog;
+    - `ro-api-entries.mjs`: logwork entry reads and the create, resubmit and delete writes.
+  - `api-auth.mjs`: the API-only Keycloak login flow and token exchange. Helpers live in `api-auth-support.mjs` (safe errors, URL checks), `api-auth-http.mjs` (cookie session, checked redirects), `api-auth-forms.mjs` (Keycloak HTML forms) and `api-auth-tokens.mjs` (RO token extraction). It re-exports their public names.
+  - `manual-ink-app.mjs`: the Ink app shell (`ManualApp`, `runManualInkApp`, state, command execution). Its actions live in hooks: `manual-ink-wizard.mjs` (logwork wizard flow), `manual-ink-draft-actions.mjs` (saved drafts) and `manual-ink-task-editor.mjs` (task lines and edit/remove). `manual-ink-interaction.mjs` renders the bottom interaction area, and `manual-ink-session.mjs` holds the session preview helpers. Views are in `manual-ink-ui.mjs` and `manual-ink-auth.mjs`; `manual-ink-app.mjs` re-exports them.
 - `logwork mcp` (`node <home>/bin/logwork.mjs mcp`) is what IDE configs run, under the server name `logwork`.
 
 The old git `commit-msg` hook, `install.mjs`, `hooks/`, `lib/protocol.mjs` and `lib/git-message.mjs` were removed.
@@ -45,7 +55,7 @@ User-facing CLI:
 - `logwork login|logout|status [ro|jira]`
 - `logwork setup`, `logwork mcp`, `logwork reminder`, `logwork update`, `logwork doctor`, `logwork release`
 
-`LOGWORK_DRY_RUN=1` (checked with `isDryRun()` from `lib/config.mjs`) makes the RO write functions in `lib/api.mjs` and every non-GET `jiraApiFetch` call in `lib/jira-api.mjs` return `{ dryRun: true, method, path, body }` instead of calling the API, with no token or headers. Reads still hit the API. The Jira apply then reports `status: 'dry_run'` and records `dry_run` entries in the apply ledger.
+`LOGWORK_DRY_RUN=1` (checked with `isDryRun()` from `lib/config.mjs`) makes the RO write functions in `lib/ro-api-entries.mjs` (re-exported by `lib/api.mjs`) and every non-GET `jiraApiFetch` call in `lib/jira-api.mjs` return `{ dryRun: true, method, path, body }` instead of calling the API, with no token or headers. Reads still hit the API. The Jira apply then reports `status: 'dry_run'` and records `dry_run` entries in the apply ledger.
 
 `LOGWORK_HOME` relocates local state; `LOGWORK_HELPER_HOME` is still honored. Tests set one of them to a temp dir, which also disables the legacy migration.
 
@@ -105,7 +115,7 @@ Rules:
 
 ## Auth and local state
 
-- **RO auth** (`lib/api-auth.mjs`, `lib/auth.mjs`) runs the Keycloak login over HTTP from the terminal: email, password, 2FA. The session, including the refresh token, is stored in macOS Keychain or Windows Credential Manager (`lib/credential-store.mjs`) under service `logwork-cli`. On a 401, workflows force a re-login and retry once.
+- **RO auth** (`lib/api-auth.mjs` and its `api-auth-*` helpers, `lib/auth.mjs`) runs the Keycloak login over HTTP from the terminal: email, password, 2FA. The session, including the refresh token, is stored in macOS Keychain or Windows Credential Manager (`lib/credential-store.mjs`) under service `logwork-cli`. On a 401, workflows force a re-login and retry once.
 - **Jira** uses a PAT saved via `logwork login jira`.
 - **Local files** live under `~/.logwork-cli`:
   - project mappings in `.logwork.json` (`tickets`, `keywords`, optional `repos` of git repo roots; user scope; or project scope in the cwd, where a legacy `.logwork-helper.json` is used until a `.logwork.json` exists);
@@ -124,12 +134,12 @@ Rules:
 
 ## Other notes
 
-- `lib/api.mjs` normalizes loosely shaped RO responses with candidate field lists. Extend those lists rather than hard-coding one shape.
+- `lib/ro-api-fields.mjs` (used by `ro-api-projects.mjs` and `ro-api-timesheet.mjs`) normalizes loosely shaped RO responses with candidate field lists. Extend those lists rather than hard-coding one shape.
 - RO has no staff edit endpoint (`PATCH /logwork/pm/entries/:id/edit-approve` is PM-only), so `lib/ro-edit-workflow.mjs` edits by replace:
   - It reads the entry from three sources: legacy `GET /member-logtime/:id` (date, owner), `GET /logwork/day` (status, `worklog_task_id`, type, description), and the project-member list (`project_id`).
   - It creates the corrected entry with `POST /logwork/entries`, then deletes the original with `DELETE /logwork/entries/:id`. If the delete fails, it rolls the new entry back. The new entry gets a new id.
   - Deleting needs no approval, and new entries are approved immediately, so an edit takes effect at once. The per-entry `is_locked` flag on approved entries does not block deletion; only the day-level `isLocked` does.
   - Only `submitted` and `approved` entries can be edited. Rejected entries use resubmit (`PATCH /logwork/entries/:id/resubmit`).
-  - The legacy `PATCH /member-logtime` (`updateLogtime` in `api.mjs`) is no longer used by any flow.
+  - The legacy `PATCH /member-logtime` is no longer used by any flow, and the client no longer has a function for it.
 - Dates are local calendar dates.
 - Docs to keep in sync with behavior: `README.md`, `docs/mcp-setup.md` (tool table, old → new tool names, line format), `docs/operations-guide.md`, `docs/recipes.md`, `docs/advanced.md`, `docs/security.md`, `RELEASE.md`.
