@@ -31,8 +31,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
       - name: Run tests
+        if: runner.os != 'macOS'
         run: npm test
+
+      # Same suite, with Node's built-in coverage and minimum thresholds.
+      - name: Run tests with coverage
+        if: runner.os == 'macOS'
+        run: npm run test:coverage
 
       - name: Verify Windows Credential Manager integration
         if: runner.os == 'Windows'

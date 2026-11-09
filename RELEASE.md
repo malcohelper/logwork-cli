@@ -55,6 +55,7 @@ This checks version consistency, git cleanliness, npm auth, npm latest version, 
 
 The gate must pass all of the following:
 
+- `npm run lint`
 - `npm test`
 - `npm audit --omit=dev --audit-level=moderate`
 - `npm pack --dry-run`

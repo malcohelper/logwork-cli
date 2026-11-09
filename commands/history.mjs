@@ -56,7 +56,3 @@ function printHistoryHelp(print = console.log) {
 
 Shows the local apply result ledger. Target both means entries applied from a combined Both flow.`);
 }
-
-async function main() {
-  await runHistoryCommand(process.argv.slice(2));
-}
