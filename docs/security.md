@@ -111,7 +111,8 @@ The runtime and local state live in `~/.logwork-cli` (`%USERPROFILE%\.logwork-cl
 | `manual-drafts.json` | Terminal UI drafts. |
 | `apply-ledger.json` | Sanitized apply history. |
 | `update-state.json` | Update check cache: package name, latest SemVer, and check timestamp. Expires after 24 hours and contains no npm credentials. |
-| `reminder.json`, `reminder-state.json` | Reminder config: enabled state, local time, target and weekdays. Last-run state: sanitized timestamps and status summaries. |
+| `reminder.json`, `reminder-state.json` | Reminder config: enabled state, local time, target, weekdays and optional git repo paths for the commit summary. Last-run state: sanitized timestamps and status summaries. |
+| `runtime.json` | The Node path and version `logwork setup` ran with, its install time and the package version. |
 | `diagnostics/` | Sanitized diagnostics reports from `logwork doctor`. |
 
 The apply ledger stores the target, flow target, batch ID, timestamp, workspace path, entry metadata, and submitted/failed/blocked status. It does not store credentials, cookies, or raw API responses, and token-like error text is redacted before writing.
@@ -145,6 +146,7 @@ The macOS launch agent and Windows scheduled task contain only fixed Node and sc
 - `reminder` with `action: "status"` is read-only.
 - `enable`, `disable` and `test` require `confirm: true`. They never accept arbitrary scheduler commands, paths, JQL, or credentials.
 - The background reminder reads RO and Jira sessions from the OS credential store only when it runs. Notification and state text are sanitized and never include raw API responses.
+- With reminder repos, the background reminder runs read-only `git log` in those repos and shows only commit and repo counts. Commit subjects and paths are not put in the notification or the state file.
 
 **Login and diagnostics**
 - `login` never accepts credentials. It only opens or explains a terminal login.

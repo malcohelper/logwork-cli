@@ -506,44 +506,57 @@ test('parseManualCommand supports visible commands and rejects exit aliases', ()
 
 test('manual MCP setup formats copy-ready client configs', async () => {
   const serverPath = '/tmp/logwork-cli/bin/logwork.mjs';
+  const nodePath = '/Users/example/.nvm/versions/node/v24.1.0/bin/node';
   const cursor = formatMcpSetup({
     client: 'cursor',
-    serverPath
+    serverPath,
+    nodePath
   });
   assert.match(cursor, /MCP setup: Cursor/);
   assert.match(cursor, /"mcpServers"/);
   assert.match(cursor, /"logwork": \{/);
+  assert.match(cursor, /"command": "\/Users\/example\/\.nvm\/versions\/node\/v24\.1\.0\/bin\/node"/);
   assert.match(cursor, /"args": \[\s+"\/tmp\/logwork-cli\/bin\/logwork\.mjs",\s+"mcp"\s+\]/);
+  assert.match(cursor, /re-run `logwork setup`/);
 
   const copilot = formatMcpSetup({
     client: 'copilot',
-    serverPath
+    serverPath,
+    nodePath
   });
   assert.match(copilot, /GitHub Copilot \/ VS Code/);
   assert.match(copilot, /"servers"/);
   assert.match(copilot, /"type": "stdio"/);
+  assert.match(copilot, /"command": "\/Users\/example\/\.nvm/);
 
   const claude = formatMcpSetup({
     client: 'claude-code',
-    serverPath
+    serverPath,
+    nodePath
   });
-  assert.match(claude, /claude mcp add --transport stdio logwork -- node '\/tmp\/logwork-cli\/bin\/logwork\.mjs' mcp/);
+  assert.match(claude, /claude mcp add --transport stdio logwork -- '\/Users\/example\/\.nvm\/versions\/node\/v24\.1\.0\/bin\/node' '\/tmp\/logwork-cli\/bin\/logwork\.mjs' mcp/);
   assert.match(claude, /project \.mcp\.json/);
 
   const windowsClaude = formatMcpSetup({
     client: 'claude-code',
     serverPath: 'C:\\Users\\example\\.logwork-cli\\bin\\logwork.mjs',
+    nodePath: 'C:\\Program Files\\nodejs\\node.exe',
     platform: 'win32'
   });
-  assert.match(windowsClaude, /node 'C:\\Users\\example\\.logwork-cli\\bin\\logwork\.mjs' mcp/);
+  assert.match(windowsClaude, /-- 'C:\\Program Files\\nodejs\\node\.exe' 'C:\\Users\\example\\.logwork-cli\\bin\\logwork\.mjs' mcp/);
 
   const codex = formatMcpSetup({
     client: 'codex',
-    serverPath
+    serverPath,
+    nodePath
   });
   assert.match(codex, /\[mcp_servers\.logwork\]/);
+  assert.match(codex, /command = "\/Users\/example\/\.nvm\/versions\/node\/v24\.1\.0\/bin\/node"/);
   assert.match(codex, /args = \[".*logwork\.mjs", "mcp"\]/);
   assert.match(codex, /tool_timeout_sec = 120/);
+
+  // The default is the node running this process, never a bare "node".
+  assert.match(formatMcpSetup({ client: 'cursor', serverPath }), new RegExp(`"command": ${escapeRegExp(JSON.stringify(process.execPath))}`));
 
   assert.equal(resolveMcpClientSelection('2')?.key, 'antigravity');
   assert.equal(resolveMcpClientSelection('github copilot')?.key, 'copilot');
@@ -1557,4 +1570,8 @@ function weeklyLogwork(overrides = {}) {
     ],
     ...overrides
   };
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

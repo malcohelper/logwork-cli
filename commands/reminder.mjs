@@ -1,5 +1,6 @@
 import { confirm, isCancel } from '@clack/prompts';
 import {
+  normalizeReminderRepos,
   normalizeReminderTime,
   REMINDER_TARGETS
 } from '../lib/reminder-config.mjs';
@@ -27,6 +28,7 @@ export function parseReminderArgs(args = []) {
     yes: false,
     json: false,
     home: undefined,
+    repos: undefined,
     help: false
   };
   for (let index = 0; index < rest.length; index += 1) {
@@ -42,6 +44,27 @@ export function parseReminderArgs(args = []) {
       }
       options[arg.slice(2)] = value;
       index += 1;
+      continue;
+    }
+    if (arg === '--repo' || arg.startsWith('--repo=')) {
+      const value = arg === '--repo' ? rest[index + 1] : arg.slice('--repo='.length);
+      if (!value || (arg === '--repo' && value.startsWith('--'))) {
+        throw new Error('--repo requires a path.');
+      }
+      if (options.repos === null) {
+        throw new Error('--repo cannot be combined with --no-repos.');
+      }
+      options.repos = [...(options.repos || []), value];
+      if (arg === '--repo') {
+        index += 1;
+      }
+      continue;
+    }
+    if (arg === '--no-repos') {
+      if (options.repos?.length) {
+        throw new Error('--repo cannot be combined with --no-repos.');
+      }
+      options.repos = null;
       continue;
     }
     if (arg === '--yes' || arg === '-y') {
@@ -60,6 +83,16 @@ export function parseReminderArgs(args = []) {
   }
   if (command !== 'enable' && options.time) {
     throw new Error('--time is only valid with reminder enable.');
+  }
+  if (command !== 'enable' && options.repos !== undefined) {
+    throw new Error('--repo and --no-repos are only valid with reminder enable.');
+  }
+  if (Array.isArray(options.repos)) {
+    // Resolve against the directory the command runs in; the scheduled run
+    // starts in the helper home.
+    options.repos = normalizeReminderRepos(options.repos);
+  } else if (options.repos === null) {
+    options.repos = [];
   }
   if (command !== 'run' && options.home) {
     throw new Error('--home is reserved for the OS reminder runner.');
@@ -131,6 +164,7 @@ export async function runReminderCli(args = [], {
     result = await enable({
       time: options.time,
       target: options.target,
+      ...(options.repos !== undefined ? { repos: options.repos } : {}),
       confirm: true
     });
   } else if (options.command === 'disable') {
@@ -147,12 +181,17 @@ export async function runReminderCli(args = [], {
 
 export function formatReminderHelp() {
   return `Usage:
-  logwork reminder enable [--time HH:mm] [--target ro|jira|both] [--yes]
+  logwork reminder enable [--time HH:mm] [--target ro|jira|both]
+                          [--repo <path>]... [--no-repos] [--yes]
   logwork reminder status [--json]
   logwork reminder test [--target ro|jira|both] [--yes]
   logwork reminder disable [--yes]
 
-The reminder runs Monday-Friday at 17:00 by default. It uses launchd on macOS and Task Scheduler on Windows. RO compares logged and booked hours; Jira checks whether the current user has a worklog today.`;
+The reminder runs Monday-Friday at 17:00 by default. It uses launchd on macOS and Task Scheduler on Windows. RO compares logged and booked hours; Jira checks whether the current user has a worklog today.
+
+--repo (repeatable) sets the git repos whose commits today are counted when RO hours are missing, for example "Hôm nay: 5 commit trong 2 repo", and points to \`logwork commits today\` for a draft. Repos listed on project mappings are also used. --repo replaces the saved list; --no-repos clears it; without either the saved list is kept.
+
+The schedule stores the absolute path of the Node that ran \`reminder enable\`. After upgrading or removing that Node (nvm, Homebrew), run \`logwork reminder enable\` or \`logwork setup\` again; \`logwork reminder status\` warns when the path is gone.`;
 }
 
 async function requireInteractiveConfirmation({ isTTY, promptConfirm, message }) {

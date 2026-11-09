@@ -1,14 +1,15 @@
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { delimiter, dirname, join, relative, resolve } from 'node:path';
+import { delimiter, dirname, join, relative, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { redactText } from '../lib/auth-redaction.mjs';
 import { credentialStoreLabel } from '../lib/credential-store.mjs';
 import { npmInvocation } from '../lib/npm-command.mjs';
-import { helperHome } from '../lib/paths.mjs';
+import { writeRuntimeInfo } from '../lib/node-runtime.mjs';
+import { RUNTIME_INFO_FILE_NAME, helperHome } from '../lib/paths.mjs';
 import {
+  MCP_NODE_PATH_NOTE,
   MCP_SERVER_NAME,
-  defaultMcpServerPath,
   formatCodexToml,
   stdioMcpServersConfig,
   vscodeMcpConfig
@@ -65,6 +66,7 @@ export async function installUserRuntime({
   installFn = installDependencies,
   linkFn = linkGlobalBinaries,
   authFn = maybeRunAuthLogin,
+  runtimeInfoFn = recordRuntimeInfo,
   reminderFn = refreshReminderSchedule,
   printFn = printMcpInstructions
 }) {
@@ -76,6 +78,7 @@ export async function installUserRuntime({
   await installFn(targetDir);
   const linkResult = await linkFn(targetDir);
   const authResult = await authFn(targetDir, options);
+  await runtimeInfoFn(targetDir);
   const reminderResult = await reminderFn(targetDir);
   await printFn(targetDir, authResult, linkResult, cleanupResult, reminderResult);
 
@@ -88,17 +91,44 @@ export async function installUserRuntime({
   };
 }
 
-// A reminder enabled by an older install still points at the old runtime.
-// Re-register it so the OS scheduler runs this runtime (and the legacy entry
-// is removed by installReminderScheduler).
-async function refreshReminderSchedule(targetDir) {
+// Records the node that ran setup (the one the printed MCP configs and the
+// reminder use), so doctor and reminder status can spot a removed or switched
+// Node later. Best effort: a failed write must not fail the install.
+export async function recordRuntimeInfo(targetDir, {
+  nodePath = process.execPath,
+  nodeVersion = process.version,
+  writeFn = writeRuntimeInfo,
+  readFileFn = fs.readFile
+} = {}) {
   try {
-    const config = await loadReminderConfig();
+    const manifest = JSON.parse(await readFileFn(join(targetDir, 'package.json'), 'utf8'));
+    return await writeFn({
+      path: join(targetDir, RUNTIME_INFO_FILE_NAME),
+      nodePath,
+      nodeVersion,
+      version: manifest.version || null
+    });
+  } catch {
+    return null;
+  }
+}
+
+// A reminder enabled by an older install still points at the old runtime, or
+// at a Node that nvm or Homebrew removed. Re-register it so the OS scheduler
+// runs this runtime with the current node (and the legacy entry is removed by
+// installReminderScheduler).
+export async function refreshReminderSchedule(targetDir, {
+  nodePath = process.execPath,
+  loadConfig = loadReminderConfig,
+  install = installReminderScheduler
+} = {}) {
+  try {
+    const config = await loadConfig();
     if (!config?.enabled) {
       return null;
     }
-    await installReminderScheduler(config, { home: targetDir });
-    return { ok: true };
+    await install(config, { home: targetDir, nodePath });
+    return { ok: true, nodePath };
   } catch (error) {
     return { ok: false, error: error.message };
   }
@@ -507,9 +537,12 @@ export function formatSetupUserInstructions({
   linkResult = null,
   cleanupResult = null,
   reminderResult = null,
-  platform = process.platform
+  platform = process.platform,
+  nodePath = process.execPath
 } = {}) {
-  const entryPath = resolve(targetDir, 'bin', 'logwork.mjs');
+  const entryPath = platform === 'win32'
+    ? win32.resolve(targetDir, 'bin', 'logwork.mjs')
+    : resolve(targetDir, 'bin', 'logwork.mjs');
   const storeLabel = credentialStoreLabel({ platform });
   const sections = [
     `logwork-cli installed to ${targetDir}.`,
@@ -528,16 +561,17 @@ export function formatSetupUserInstructions({
     'Next steps',
     ...formatNextSteps(authResult),
     '',
-    `MCP config (server name "${MCP_SERVER_NAME}", runs: node ${entryPath} mcp)`,
+    `MCP config (server name "${MCP_SERVER_NAME}", runs: ${nodePath} ${entryPath} mcp)`,
+    MCP_NODE_PATH_NOTE,
     '',
     'Cursor / Antigravity / Claude Code (.mcp.json):',
-    JSON.stringify(stdioMcpServersConfig(entryPath), null, 2),
+    JSON.stringify(stdioMcpServersConfig(entryPath, { nodePath }), null, 2),
     '',
     'Codex config.toml:',
-    formatCodexToml(entryPath),
+    formatCodexToml(entryPath, { nodePath }),
     '',
     'GitHub Copilot / VS Code mcp.json:',
-    JSON.stringify(vscodeMcpConfig(entryPath), null, 2),
+    JSON.stringify(vscodeMcpConfig(entryPath, { nodePath }), null, 2),
     '',
     'AI agent skill (log work from your commits)',
     '- Claude Code / Codex: run `logwork skill install`.',

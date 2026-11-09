@@ -235,6 +235,12 @@ RO-only reminder at 18:00:
 logwork reminder enable --time 18:00 --target ro
 ```
 
+Add commit evidence from your repos (shown when RO hours are missing):
+
+```bash
+logwork reminder enable --repo ~/code/app --repo ~/code/api
+```
+
 Send a sample notification and inspect scheduler status:
 
 ```bash

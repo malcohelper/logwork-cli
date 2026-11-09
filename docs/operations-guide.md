@@ -437,6 +437,8 @@ Other operations:
 
 ```bash
 logwork reminder enable --time 18:00 --target ro
+logwork reminder enable --repo ~/code/app --repo ~/code/api
+logwork reminder enable --no-repos
 logwork reminder status
 logwork reminder test
 logwork reminder disable
@@ -451,8 +453,18 @@ Behavior:
 - Missing auth produces an actionable notification without exposing API details.
 - macOS uses a user `launchd` agent (`sg.vinova.logwork-cli.reminder`).
 - Windows uses an interactive user Task Scheduler task (`Logwork Reminder`).
-- The scheduler runs `node ~/.logwork-cli/bin/logwork.mjs reminder run --home ~/.logwork-cli`.
+- The scheduler runs `<absolute node path> ~/.logwork-cli/bin/logwork.mjs reminder run --home ~/.logwork-cli`, using the Node that ran `reminder enable` or `logwork setup`.
+- If that Node is removed or replaced (`nvm uninstall`, `brew upgrade node`), the schedule still looks installed but cannot run. `logwork reminder status` and `logwork doctor` warn about it; run `logwork reminder enable` or `logwork setup` to re-register it with the current Node.
 - Enabling or disabling the reminder also removes a leftover `logwork-helper` schedule.
+
+Commit evidence:
+
+- `--repo <path>` (repeatable) saves git repos in `reminder.json` as absolute paths. MCP: `reminder` with `action: "enable"` and `repos`. `--repo` or `repos` replaces the saved list, `--no-repos` or `repos: []` clears it, and leaving them out keeps it.
+- Repos listed in a project mapping's `repos` field are added.
+- When RO hours are missing, the reminder reads your commits today in those repos (read-only, the same reader as `logwork commits`, without another RO query) and adds `Hôm nay: <n> commit trong <k> repo`. The action line then points to `logwork commits today`.
+- Run outside a git repo, `logwork commits today` falls back to the reminder repos.
+- With no repos, no commits today, or any error reading them (missing repo, git not on the scheduler's `PATH`, a 20-second timeout), the plain message is shown.
+- The notification stays a plain OS notification on both platforms (macOS `display notification`, a Windows toast). It has no buttons; open a terminal and run the command shown.
 
 Example Both notification:
 
@@ -463,6 +475,19 @@ Jira: chưa có worklog hôm nay
 
 Mở Terminal và chạy: logwork
 ```
+
+With reminder repos and commits today:
+
+```text
+Logwork hôm nay chưa hoàn tất
+RO: 4/8h, còn thiếu 4h
+Jira: chưa có worklog hôm nay
+Hôm nay: 5 commit trong 2 repo
+
+Mở Terminal và chạy: logwork commits today (bản nháp từ commit)
+```
+
+`logwork reminder test` sends a sample in this format.
 
 The notification text is localized in Vietnamese. The OS schedule stores only fixed Node/script paths and reads credentials from the OS credential store when it runs.
 
@@ -541,6 +566,7 @@ The release doctor checks package version consistency, self-dependencies, clean/
 | Apply history | `.logwork-cli/apply-ledger.json` | No |
 | Update cache | `.logwork-cli/update-state.json` | No |
 | Reminder config/state | `.logwork-cli/reminder.json`, `.logwork-cli/reminder-state.json` | No |
+| Runtime Node record | `.logwork-cli/runtime.json` (Node path and version from `logwork setup`) | No |
 | RO/Jira sessions | OS credential store, service `logwork-cli` | Yes |
 
 The helper home is `~/.logwork-cli` on macOS and `%USERPROFILE%\.logwork-cli` on Windows. `LOGWORK_HOME` overrides it; the older `LOGWORK_HELPER_HOME` is still honored.
@@ -588,6 +614,7 @@ Recommended end-user checks after installation:
 - Partial Both result: inspect `/history both`, then preview only the missing target.
 - npm `E401`: refresh npm login with `npm login --registry=https://registry.npmjs.org/`.
 - Reminder config/scheduler mismatch: rerun `reminder enable` or `reminder disable`.
+- Reminder or MCP Node path gone after a Node upgrade: run `logwork setup` (refreshes `runtime.json`, the reminder and the printed MCP configs), then paste the new MCP config.
 - MCP after update: restart or reload the MCP connection.
 
 For client configuration details, see [MCP setup](mcp-setup.md). For security boundaries and stored-data details, see [Security and auth](security.md). For copy-ready task recipes, see [Quick recipes](recipes.md).

@@ -4,11 +4,17 @@
 
 For the full RO/Jira/Both processing model, mapping, reconciliation, history, reminders and updates, see the [operations guide](operations-guide.md).
 
-Every client runs `node <home>/.logwork-cli/bin/logwork.mjs mcp` under the server name `logwork`.
+Every client runs `<absolute path to node> <home>/.logwork-cli/bin/logwork.mjs mcp` under the server name `logwork`.
 
-The config uses an absolute `node` entry path instead of the `logwork` command. GUI IDEs often start without the npm global bin directory on `PATH`, so the bare command may not be found.
+Both paths are absolute:
+- The entry is `bin/logwork.mjs` instead of the `logwork` command, because GUI IDEs often start without the npm global bin directory on `PATH`.
+- The `command` is the absolute path of your Node binary instead of a bare `node`. Cursor or VS Code started from the Dock, Finder or Start menu usually does not get the `PATH` that nvm (or another version manager) sets up in your shell, so `node` is not found and the server never starts.
 
-The examples use `/Users/<user>` as a macOS placeholder. On Windows, use the path printed by `logwork setup` or `/mcp`, usually `C:\\Users\\<user>\\.logwork-cli\\bin\\logwork.mjs` inside JSON or TOML strings.
+`logwork setup` and `/mcp` print both paths for the Node that ran them (`process.execPath`). To find it yourself, run `which node` (macOS) or `(Get-Command node).Source` (PowerShell).
+
+If Node is upgraded or moved (`nvm uninstall`, `brew upgrade node`, a new installer), the old path stops working. Re-run `logwork setup` and paste the new config. `logwork doctor` warns when the Node recorded by setup no longer exists.
+
+The examples use `/Users/<user>` and `<absolute path to node>` as placeholders. With nvm on macOS the Node path looks like `/Users/<user>/.nvm/versions/node/v24.x.y/bin/node`; with Homebrew, `/opt/homebrew/bin/node`. On Windows, use the paths printed by `logwork setup` or `/mcp`, for example `C:\\Program Files\\nodejs\\node.exe` and `C:\\Users\\<user>\\.logwork-cli\\bin\\logwork.mjs` inside JSON or TOML strings.
 
 ## Cursor / Google Antigravity
 
@@ -18,7 +24,7 @@ Cursor MCP settings, or `~/.gemini/antigravity/mcp_config.json`:
 {
   "mcpServers": {
     "logwork": {
-      "command": "node",
+      "command": "<absolute path to node>",
       "args": ["/Users/<user>/.logwork-cli/bin/logwork.mjs", "mcp"]
     }
   }
@@ -31,7 +37,7 @@ Cursor MCP settings, or `~/.gemini/antigravity/mcp_config.json`:
 
 ```toml
 [mcp_servers.logwork]
-command = "node"
+command = "<absolute path to node>"
 args = ["/Users/<user>/.logwork-cli/bin/logwork.mjs", "mcp"]
 startup_timeout_sec = 20
 tool_timeout_sec = 120
@@ -46,7 +52,7 @@ Workspace `.vscode/mcp.json`, or your VS Code user MCP config:
   "servers": {
     "logwork": {
       "type": "stdio",
-      "command": "node",
+      "command": "<absolute path to node>",
       "args": ["/Users/<user>/.logwork-cli/bin/logwork.mjs", "mcp"]
     }
   }
@@ -56,13 +62,13 @@ Workspace `.vscode/mcp.json`, or your VS Code user MCP config:
 ## Claude Code
 
 ```bash
-claude mcp add --transport stdio logwork -- node "/Users/<user>/.logwork-cli/bin/logwork.mjs" mcp
+claude mcp add --transport stdio logwork -- "<absolute path to node>" "/Users/<user>/.logwork-cli/bin/logwork.mjs" mcp
 ```
 
 From Windows PowerShell:
 
 ```powershell
-claude mcp add --transport stdio logwork -- node 'C:\Users\<user>\.logwork-cli\bin\logwork.mjs' mcp
+claude mcp add --transport stdio logwork -- 'C:\Program Files\nodejs\node.exe' 'C:\Users\<user>\.logwork-cli\bin\logwork.mjs' mcp
 ```
 
 Or add the Cursor JSON above to the project `.mcp.json`.
