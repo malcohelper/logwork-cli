@@ -4,6 +4,29 @@ Each version needs a `## [x.y.z]` section here before its version bump is
 pushed to `main`. The release workflow uses that section as the GitHub Release
 description.
 
+## [Unreleased]
+
+### Added
+- **Map repos without ids.**
+  - `logwork commits` asks once per unmapped repo which RO project it belongs to. The likely project is preselected; pick it with Enter, or skip.
+  - The answer is saved, and the draft is redone with per-project hours.
+  - Suggestions come from:
+    - ticket keys already logged to a project in the last 30 days;
+    - the repo folder or git remote name matching the project name (including its acronym);
+    - a single booked project on those days.
+  - `/map --repo` in the terminal UI opens the same picker, or takes a project name.
+  - `draft_from_commits` returns `repoSuggestions`, so agents ask "is this repo FCS?" instead of asking for ids.
+- **Automatic MCP setup.**
+  - `logwork setup` offers to add the `logwork` server to the IDEs it finds: Claude Code, Cursor, Codex, VS Code and Google Antigravity. It backs up each file first and removes old `logwork-helper` entries.
+  - `logwork mcp install` does the same later.
+  - `logwork mcp status` shows which clients are missing, stale or up to date.
+  - Files with comments are never rewritten; their snippet is printed instead.
+
+### Changed
+- **Stable launcher (macOS).** MCP configs and the reminder run `~/.logwork-cli/bin/logwork-launch`, which finds Node 22+ itself: the recorded Node, then PATH, nvm, Volta, fnm and Homebrew. Upgrading or switching Node no longer breaks them.
+- **Windows Node path.** On Windows the configs use a stable `node.exe` path (the nvm-windows symlink when present).
+- **Doctor.** `logwork doctor` adds "MCP Clients" and checks the launcher.
+
 ## [1.2.0] - 2026-11-09
 
 ### Added
