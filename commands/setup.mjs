@@ -427,7 +427,8 @@ export async function linkGlobalBinaries(targetDir, {
   runner = runCommand,
   commandFinder = findCommandOnPath,
   prefixReader = readNpmGlobalPrefix,
-  legacyLinkCleaner = removeDanglingLegacyLinks
+  legacyLinkCleaner = removeDanglingLegacyLinks,
+  writableChecker = isGlobalPrefixWritable
 } = {}) {
   // Best effort: drop the pre-rename global package so its `logwork` bin does
   // not block linking this one. A no-op when it is not installed.
@@ -435,9 +436,11 @@ export async function linkGlobalBinaries(targetDir, {
     cwd: targetDir,
     stdio: 'ignore'
   }).catch(() => {});
-  await Promise.resolve()
+  const prefix = await Promise.resolve()
     .then(() => prefixReader(targetDir))
-    .then((prefix) => legacyLinkCleaner(prefix))
+    .catch(() => '');
+  await Promise.resolve()
+    .then(() => legacyLinkCleaner(prefix))
     .catch(() => []);
 
   try {
@@ -446,10 +449,24 @@ export async function linkGlobalBinaries(targetDir, {
       stdio: 'inherit'
     });
   } catch (error) {
+    // A root-owned global folder (Node from apt/dnf, or /usr/local) is the
+    // usual cause on Linux; name it so the fix is concrete.
+    const writable = prefix ? await writableChecker(prefix).catch(() => true) : true;
+    if (writable) {
+      return {
+        linked: false,
+        commandAvailable: false,
+        error: error.message
+      };
+    }
+    // `sudo npm install -g logwork-cli` already put a command on PATH.
+    const commandAvailable = Boolean(await Promise.resolve().then(() => commandFinder('logwork')).catch(() => false));
     return {
       linked: false,
-      commandAvailable: false,
-      error: error.message
+      commandAvailable,
+      error: error.message,
+      prefix,
+      prefixNotWritable: true
     };
   }
 
@@ -461,6 +478,25 @@ export async function linkGlobalBinaries(targetDir, {
       ? null
       : '`logwork` was linked, but it is not visible on PATH in this shell.'
   };
+}
+
+// npm link writes <prefix>/lib/node_modules and <prefix>/bin (POSIX) or the
+// prefix itself (Windows).
+export async function isGlobalPrefixWritable(prefix, {
+  platform = process.platform,
+  accessFn = fs.access
+} = {}) {
+  const target = platform === 'win32' ? prefix : join(prefix, 'lib', 'node_modules');
+  try {
+    await accessFn(target, fsConstants.W_OK);
+    return true;
+  } catch (error) {
+    // A missing lib/node_modules is created by npm; judge the prefix then.
+    if (error?.code === 'ENOENT' && target !== prefix) {
+      return accessFn(prefix, fsConstants.W_OK).then(() => true, () => false);
+    }
+    return false;
+  }
 }
 
 export async function findCommandOnPath(commandName, {
@@ -754,6 +790,32 @@ export function formatTerminalCommandInstructions(linkResult = null) {
       '',
       `Warning: ${linkResult.warning}`,
       'If `logwork` is not found, open a new terminal or ensure npm global bin is on PATH.'
+    ].join('\n');
+  }
+
+  if (linkResult.prefixNotWritable && linkResult.commandAvailable) {
+    return [
+      ...commands,
+      '',
+      `Note: \`logwork\` comes from a system-wide install in ${linkResult.prefix}, which this user cannot relink.`,
+      'MCP clients and the reminder use the updated runtime. To update the terminal command too, run:',
+      '  sudo npm install -g logwork-cli'
+    ].join('\n');
+  }
+
+  if (linkResult.prefixNotWritable) {
+    return [
+      'Terminal command link did not complete.',
+      `Reason: the global npm folder ${linkResult.prefix} is not writable by this user (${String(linkResult.error || '').replace(/\.+$/, '')}).`,
+      'MCP clients and the reminder still work: they run the logwork launcher, not this command.',
+      '',
+      'To get the `logwork` command, pick one:',
+      '  - Recommended: install Node.js with nvm, then: npm install -g logwork-cli && logwork setup',
+      '  - Or keep this Node and use a user npm folder:',
+      '      npm config set prefix ~/.npm-global',
+      '      export PATH="$HOME/.npm-global/bin:$PATH"   # also add this line to ~/.bashrc or ~/.zshrc',
+      '      npm install -g logwork-cli && logwork setup',
+      '  - Or install it system-wide: sudo npm install -g logwork-cli'
     ].join('\n');
   }
 

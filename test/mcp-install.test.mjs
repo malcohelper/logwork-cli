@@ -543,3 +543,27 @@ test('PATH lookup and cmd.exe quoting', async () => {
   assert.equal(quoteCmdArg('mcp'), 'mcp');
   assert.throws(() => quoteCmdArg('a"b'), /cmd\.exe/);
 });
+
+test('Linux VS Code: the Flatpak config folder is used when ~/.config/Code is missing', async () => {
+  const userHome = '/home/jane';
+  const flatpakDir = '/home/jane/.var/app/com.visualstudio.code/config/Code/User';
+  const memory = memoryFs({}, [flatpakDir]);
+  const ctx = context(userHome, { platform: 'linux', fsApi: memory.api });
+  const plan = await planFor(ctx, 'vscode');
+  assert.equal(plan.label, 'VS Code (Flatpak)');
+  assert.equal(plan.file, `${flatpakDir}/mcp.json`);
+  assert.equal(plan.action, 'add');
+  assert.equal((await applyMcpClientPlan(plan, ctx)).status, 'added');
+  assert.deepEqual(JSON.parse(memory.store.get(`${flatpakDir}/mcp.json`)).servers.logwork, { type: 'stdio', command: LAUNCHER, args: ['mcp'] });
+
+  // With both installed, the regular folder wins.
+  const both = memoryFs({}, [flatpakDir, '/home/jane/.config/Code/User']);
+  const regular = await planFor(context(userHome, { platform: 'linux', fsApi: both.api }), 'vscode');
+  assert.equal(regular.label, 'VS Code');
+  assert.equal(regular.file, '/home/jane/.config/Code/User/mcp.json');
+
+  // Neither: not detected, at the regular path.
+  const none = await planFor(context(userHome, { platform: 'linux', fsApi: memoryFs().api }), 'vscode');
+  assert.equal(none.action, 'not_detected');
+  assert.equal(none.file, '/home/jane/.config/Code/User/mcp.json');
+});

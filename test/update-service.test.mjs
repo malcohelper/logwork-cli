@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   checkForUpdates,
   compareVersions,
+  describeSeparateTerminalInstall,
   formatUpdateNotice,
   installUpdate,
   isNewerVersion,
@@ -228,4 +229,41 @@ test('startup update notice is concise and actionable', () => {
     }),
     'Update available: 0.1.10 -> 0.1.11. Run `logwork update install`.'
   );
+});
+
+test('update warns when the logwork command runs from a separate (sudo) install', async () => {
+  const realpath = async (path) => ({ '/home/jane/.logwork-cli': '/home/jane/.logwork-cli', '/usr/lib/node_modules/logwork-cli': '/usr/lib/node_modules/logwork-cli' })[path] || path;
+  const note = await describeSeparateTerminalInstall({
+    packageRoot: '/usr/lib/node_modules/logwork-cli',
+    runtimeHome: '/home/jane/.logwork-cli',
+    realpath,
+    packageName: 'logwork-cli',
+    previousVersion: '1.3.1',
+    targetVersion: '1.4.0'
+  });
+  assert.match(note, /runs from \/usr\/lib\/node_modules\/logwork-cli, a separate install that stays at 1\.3\.1/);
+  assert.match(note, /npm install -g logwork-cli@1\.4\.0` \(with sudo/);
+
+  // npm link points the command at the runtime: no note.
+  assert.equal(await describeSeparateTerminalInstall({
+    packageRoot: '/usr/local/bin/../lib/node_modules/logwork-cli',
+    runtimeHome: '/home/jane/.logwork-cli',
+    realpath: async () => '/home/jane/.logwork-cli',
+    previousVersion: '1.3.1',
+    targetVersion: '1.4.0'
+  }), '');
+
+  const result = await installUpdate({
+    confirm: true,
+    packageInfo: { name: 'logwork-cli', version: '1.3.1' },
+    checkForUpdatesFn: async () => ({ latestVersion: '1.4.0' }),
+    runCommand: async () => ({ code: 0, stdout: '', stderr: '' }),
+    readInstalledVersion: async () => '1.4.0',
+    packageRoot: '/usr/lib/node_modules/logwork-cli',
+    runtimeHome: '/home/jane/.logwork-cli',
+    realpath
+  });
+  assert.equal(result.status, 'updated');
+  assert.match(result.terminalCommandNote, /separate install/);
+  assert.match(result.summary, /Updated logwork-cli from 1\.3\.1 to 1\.4\.0\..*separate install/);
 });

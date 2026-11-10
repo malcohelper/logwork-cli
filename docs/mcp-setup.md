@@ -13,7 +13,7 @@ For the full RO/Jira/Both processing model, mapping, reconciliation, history, re
 | Claude Code | `claude` on `PATH`, or `~/.claude.json` | `claude mcp remove --scope user logwork`, then `claude mcp add --scope user logwork -- <command> <args>`. Without the CLI: the top-level `mcpServers` in `~/.claude.json`. |
 | Cursor | `~/.cursor` | `mcpServers.logwork` in `~/.cursor/mcp.json` |
 | Codex | `~/.codex` | the `[mcp_servers.logwork]` table in `~/.codex/config.toml` |
-| VS Code (user) | `~/Library/Application Support/Code/User` (macOS), `%APPDATA%\Code\User` (Windows) | `servers.logwork` (`"type": "stdio"`) in `mcp.json` there |
+| VS Code (user) | `~/Library/Application Support/Code/User` (macOS), `%APPDATA%\Code\User` (Windows), `~/.config/Code/User` or the Flatpak `~/.var/app/com.visualstudio.code/config/Code/User` (Linux) | `servers.logwork` (`"type": "stdio"`) in `mcp.json` there |
 | Google Antigravity | `~/.gemini/antigravity` | `mcpServers.logwork` in `~/.gemini/antigravity/mcp_config.json` |
 
 How files are edited:
@@ -158,7 +158,7 @@ Previews expire after 1 hour. They are also lost when the server restarts.
 | Config | `map_project` | local write, `confirm` | Map ticket prefixes, keywords or git repos (`repos`) to an RO project (`.logwork.json`). |
 | Config | `reminder` | `action`: status / enable / disable / test | Native OS reminder. Every action except `status` needs `confirm: true`. |
 | Config | `update` | `action`: check / install | npm self-update. `install` needs `confirm: true`. |
-| Auth | `login` | local | `target: "ro"` (default) opens or explains a terminal login. `target: "jira"` explains how to save a PAT. Never accepts credentials. |
+| Auth | `login` | local | `target: "ro"` (default) opens a terminal login (macOS Terminal; on a Linux desktop `$TERMINAL`, `x-terminal-emulator`, GNOME Terminal, Konsole, ...) or explains it (Windows, no desktop). `target: "jira"` explains how to save a PAT. Never accepts credentials. |
 
 ### Tool Name Changes From logwork-helper
 

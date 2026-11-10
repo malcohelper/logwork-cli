@@ -10,6 +10,7 @@ import { createAuthDiagnosticsRecorder } from '../lib/auth-diagnostics.mjs';
 import {
   formatSetupUserInstructions,
   formatTerminalCommandInstructions,
+  isGlobalPrefixWritable,
   findCommandOnPath,
   installUserRuntime,
   linkGlobalBinaries,
@@ -629,3 +630,72 @@ function makeJwt() {
 function nextStepsSection(output) {
   return String(output).match(/Next steps\n([\s\S]*?)\n\nMCP server/)?.[1] || '';
 }
+
+test('a root-owned global npm folder is named, with nvm / user prefix / sudo fixes', async () => {
+  const result = await linkGlobalBinaries('/home/jane/.logwork-cli', {
+    runner: async (command, args) => {
+      if (args[0] === 'link') {
+        throw new Error('npm link failed with exit code 243.');
+      }
+    },
+    commandFinder: async () => false,
+    prefixReader: async () => '/usr/local',
+    legacyLinkCleaner: async () => [],
+    writableChecker: async (prefix) => {
+      assert.equal(prefix, '/usr/local');
+      return false;
+    }
+  });
+  assert.equal(result.linked, false);
+  assert.equal(result.prefixNotWritable, true);
+  assert.equal(result.prefix, '/usr/local');
+
+  const text = formatTerminalCommandInstructions(result);
+  assert.match(text, /the global npm folder \/usr\/local is not writable by this user \(npm link failed with exit code 243\)\./);
+  assert.match(text, /MCP clients and the reminder still work/);
+  assert.match(text, /npm config set prefix ~\/\.npm-global/);
+  assert.match(text, /sudo npm install -g logwork-cli/);
+  assert.doesNotMatch(text, /Fallback:/);
+
+  // A sudo install already on PATH: the command works, explain how to update it.
+  const sudoInstalled = await linkGlobalBinaries('/home/jane/.logwork-cli', {
+    runner: async (command, args) => { if (args[0] === 'link') { throw new Error('npm link failed with exit code 243.'); } },
+    commandFinder: async () => true,
+    prefixReader: async () => '/usr',
+    legacyLinkCleaner: async () => [],
+    writableChecker: async () => false
+  });
+  assert.equal(sudoInstalled.commandAvailable, true);
+  const sudoText = formatTerminalCommandInstructions(sudoInstalled);
+  assert.match(sudoText, /^Terminal command installed:/);
+  assert.match(sudoText, /system-wide install in \/usr, which this user cannot relink/);
+  assert.match(sudoText, /To update the terminal command too, run:\n  sudo npm install -g logwork-cli/);
+
+  // A writable prefix keeps the generic message.
+  const other = await linkGlobalBinaries('/home/jane/.logwork-cli', {
+    runner: async (command, args) => { if (args[0] === 'link') { throw new Error('boom'); } },
+    commandFinder: async () => false,
+    prefixReader: async () => '/home/jane/.npm-global',
+    legacyLinkCleaner: async () => [],
+    writableChecker: async () => true
+  });
+  assert.equal(other.prefixNotWritable, undefined);
+  assert.match(formatTerminalCommandInstructions(other), /Fallback:\n  npm install -g logwork-cli/);
+});
+
+test('global prefix writability checks lib/node_modules, or the prefix when that is missing', async () => {
+  const checked = [];
+  const access = (results) => async (path) => {
+    checked.push(path);
+    const outcome = results[path];
+    if (outcome) {
+      throw Object.assign(new Error(outcome), { code: outcome });
+    }
+  };
+  assert.equal(await isGlobalPrefixWritable('/usr/local', { platform: 'linux', accessFn: access({ '/usr/local/lib/node_modules': 'EACCES' }) }), false);
+  assert.equal(await isGlobalPrefixWritable('/opt/n', { platform: 'linux', accessFn: access({ '/opt/n/lib/node_modules': 'ENOENT' }) }), true);
+  assert.equal(await isGlobalPrefixWritable('/opt/m', { platform: 'linux', accessFn: access({ '/opt/m/lib/node_modules': 'ENOENT', '/opt/m': 'EACCES' }) }), false);
+  assert.equal(await isGlobalPrefixWritable('C:\\npm', { platform: 'win32', accessFn: access({}) }), true);
+  assert.deepEqual(checked.slice(0, 1), ['/usr/local/lib/node_modules']);
+  assert.equal(checked.at(-1), 'C:\\npm');
+});

@@ -11,7 +11,9 @@ description.
   - Login sessions go to the freedesktop Secret Service (GNOME Keyring, KWallet, KeePassXC) through libsecret's `secret-tool`. The value passes on stdin/stdout, never argv, and there is no plaintext fallback: without a Secret Service, login stops with install instructions (`sudo apt install libsecret-tools gnome-keyring`).
   - The reminder is a systemd user timer (`~/.config/systemd/user/logwork-cli-reminder.timer`) that runs the `logwork-launch` launcher, and the notification uses `notify-send` (`libnotify-bin`). Without a user systemd, `logwork reminder enable` prints the equivalent `crontab` line.
   - The launcher also finds Node from Linuxbrew, `$FNM_DIR` / `$XDG_DATA_HOME/fnm` and `/usr/bin/node`.
-  - MCP client setup already used the Linux config paths (`~/.config/Code/User/mcp.json` for VS Code).
+  - MCP client setup uses the Linux config paths (`~/.config/Code/User/mcp.json` for VS Code) and finds VS Code installed from Flathub (`~/.var/app/com.visualstudio.code/...`).
+  - The MCP `login` tool opens a terminal window on a Linux desktop (`$TERMINAL`, `x-terminal-emulator`, GNOME Terminal, Konsole, xfce4-terminal, kitty, Alacritty, WezTerm, xterm), like it opens Terminal on macOS. Without a desktop it prints the command.
+  - When `npm link` cannot write a root-owned global npm folder (Node from apt/dnf), `logwork setup` names the folder and offers nvm, a user npm prefix or `sudo npm install -g`. `logwork update` notes when the `logwork` command comes from such a separate install, which it cannot update.
 
 ### Changed
 - **Reminder lists the repos.** Instead of "Hôm nay: 5 commit trong 2 repo", the reminder shows "Hôm nay 5 commit:" with one line per repo ("• teammates: 3"), busiest first. At most three repos are listed; the rest show as "• +N repo khác".

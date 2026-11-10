@@ -29,7 +29,7 @@ sudo apt install libsecret-tools gnome-keyring libnotify-bin   # Debian/Ubuntu
 sudo dnf install libsecret gnome-keyring libnotify             # Fedora
 ```
 
-GNOME and KDE desktops usually have a keyring running already (KWallet and KeePassXC work too). If `npm install -g` needs `sudo` with your distro's Node, use nvm or set a user npm prefix instead.
+GNOME and KDE desktops usually have a keyring running already (KWallet and KeePassXC work too). If `npm install -g` needs `sudo` with your distro's Node, prefer nvm or a user npm prefix (`npm config set prefix ~/.npm-global`); `logwork setup` explains the options when it cannot link the command. When an AI assistant calls the `login` tool, a terminal window (`$TERMINAL`, `x-terminal-emulator`, GNOME Terminal, Konsole, ...) opens for the password and 2FA.
 
 `logwork setup` does the following:
 - installs the runtime to `~/.logwork-cli` (`%USERPROFILE%\.logwork-cli` on Windows),
@@ -189,7 +189,7 @@ Run `logwork setup` and answer yes for each client. It finds the clients you hav
 | Claude Code | `claude mcp add --scope user logwork ...` (or `~/.claude.json` when the `claude` CLI is not on `PATH`) |
 | Cursor | `~/.cursor/mcp.json` |
 | Codex | `~/.codex/config.toml` |
-| VS Code | user `mcp.json` (`~/Library/Application Support/Code/User` on macOS, `%APPDATA%\Code\User` on Windows) |
+| VS Code | user `mcp.json` (`~/Library/Application Support/Code/User` on macOS, `%APPDATA%\Code\User` on Windows, `~/.config/Code/User` on Linux, or `~/.var/app/com.visualstudio.code/config/Code/User` for the Flatpak build) |
 | Google Antigravity | `~/.gemini/antigravity/mcp_config.json` |
 
 It touches only the `logwork` entry, removes an old `logwork-helper` entry, and backs up each file first (`<file>.logwork-backup-<timestamp>`). A file it cannot parse safely (JSON with comments, unusual TOML) is left alone, and setup prints the snippet to paste instead.
