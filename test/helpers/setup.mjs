@@ -6,7 +6,9 @@
 //   LOGWORK_DRY_RUN, LOGWORK_HOME, LOGWORK_PROFILE or LOGWORK_API_BASE;
 // - points LOGWORK_HOME at a fresh temp dir for this process, so user config,
 //   drafts, the apply ledger and other local state never touch the real
-//   ~/.logwork-cli, and the legacy-home migration stays off.
+//   ~/.logwork-cli, and the legacy-home migration stays off;
+// - sets LOGWORK_WSL=0, so a developer (or CI) inside WSL gets the plain Linux
+//   code paths; WSL tests pass `wsl: true` explicitly.
 //
 // Tests that set these variables themselves still win: they run after this file.
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -21,6 +23,7 @@ for (const name of Object.keys(process.env)) {
 
 const testHome = mkdtempSync(join(tmpdir(), 'logwork-test-home-'));
 process.env.LOGWORK_HOME = testHome;
+process.env.LOGWORK_WSL = '0';
 
 process.on('exit', () => {
   try {

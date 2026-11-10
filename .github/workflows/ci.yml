@@ -65,3 +65,35 @@ jobs:
 
       - name: Check whitespace
         run: git diff --check
+
+  # Linux inside WSL on a Windows runner: the full suite as plain Linux, then
+  # the real interop tests (Windows Credential Manager through powershell.exe,
+  # Task Scheduler through schtasks.exe).
+  wsl:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up WSL
+        uses: Vampire/setup-wsl@v7.2.0
+        with:
+          distribution: Ubuntu-24.04
+          additional-packages: curl ca-certificates xz-utils git
+
+      - name: Install Node.js 22, run the suite and the WSL interop tests
+        shell: wsl-bash {0}
+        run: |
+          file=$(curl -fsSL https://nodejs.org/dist/latest-v22.x/SHASUMS256.txt | awk '/linux-x64\.tar\.xz$/ {print $2}')
+          mkdir -p "$HOME/node"
+          curl -fsSL "https://nodejs.org/dist/latest-v22.x/$file" | tar -xJ -C "$HOME/node" --strip-components=1
+          export PATH="$HOME/node/bin:$PATH"
+          node --version
+          git config --global user.email ci@example.com
+          git config --global user.name ci
+          git config --global --add safe.directory '*'
+          # A clone inside WSL has LF files, unlike the Windows checkout.
+          rm -rf "$HOME/repo" && git clone --quiet --no-hardlinks "$PWD" "$HOME/repo" && cd "$HOME/repo"
+          npm ci
+          npm test
+          TEST_WSL_INTEROP=1 node --import ./test/helpers/setup.mjs --test test/wsl.test.mjs
