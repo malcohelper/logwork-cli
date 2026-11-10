@@ -329,7 +329,7 @@ test('reminder test notification and CLI require explicit confirmation', async (
     }
   });
   assert.equal(sent.status, 'sent');
-  assert.match(notification.message, /Đây là notification thử nghiệm/);
+  assert.equal(notification.title, 'Logwork (thử nghiệm)');
 
   assert.equal(parseReminderArgs(['enable', '--time', '18:00', '--target', 'jira', '--yes']).target, 'jira');
   assert.throws(() => parseReminderArgs(['enable', '--time', '28:00']), /HH:mm/);

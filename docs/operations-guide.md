@@ -473,15 +473,15 @@ Commit evidence:
 
 - `--repo <path>` (repeatable) saves git repos in `reminder.json` as absolute paths. MCP: `reminder` with `action: "enable"` and `repos`. `--repo` or `repos` replaces the saved list, `--no-repos` or `repos: []` clears it, and leaving them out keeps it.
 - Repos listed in a project mapping's `repos` field are added.
-- When RO hours are missing, the reminder reads your commits today in those repos (read-only, the same reader as `logwork commits`, without another RO query) and adds `Hôm nay: <n> commit trong <k> repo`. The action line then points to `logwork commits today`.
+- When RO hours are missing, the reminder reads your commits today in those repos (read-only, the same reader as `logwork commits`, without another RO query) and adds `Hôm nay <n> commit:` followed by one `  • <repo>: <count>` line per repo (folder name, busiest first). Only repos with commits today are listed, at most three; the rest become `  • +N repo khác`. The action line then points to `logwork commits today`.
 - Run outside a git repo, `logwork commits today` falls back to the reminder repos.
 - With no repos, no commits today, or any error reading them (missing repo, git not on the scheduler's `PATH`, a 20-second timeout), the plain message is shown.
+- The message has no header line (the title is `Logwork`), so the banner shows the RO/Jira status and the commits first.
 - The notification stays a plain OS notification on both platforms (macOS `display notification`, a Windows toast). It has no buttons; open a terminal and run the command shown.
 
 Example Both notification:
 
 ```text
-Logwork hôm nay chưa hoàn tất
 RO: 6/8h, còn thiếu 2h
 Jira: chưa có worklog hôm nay
 
@@ -491,10 +491,11 @@ Mở Terminal và chạy: logwork
 With reminder repos and commits today:
 
 ```text
-Logwork hôm nay chưa hoàn tất
 RO: 4/8h, còn thiếu 4h
 Jira: chưa có worklog hôm nay
-Hôm nay: 5 commit trong 2 repo
+Hôm nay 5 commit:
+  • teammates: 3
+  • logwork-cli: 2
 
 Mở Terminal và chạy: logwork commits today (bản nháp từ commit)
 ```

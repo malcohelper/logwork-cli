@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { isInsideGitWorkTree, run as runCommits } from '../commands/commits.mjs';
 import { parseReminderArgs, runReminderCli } from '../commands/reminder.mjs';
 import {
@@ -16,6 +16,7 @@ import { enableLogworkReminder } from '../lib/reminder-service.mjs';
 import {
   buildReminderNotification,
   checkLogworkReminder,
+  formatCommitLines,
   collectReminderRepos,
   runScheduledReminder,
   sendTestReminderNotification,
@@ -101,16 +102,24 @@ test('reminder message adds commit evidence when RO hours are missing', async ()
     queryJira: JIRA_INCOMPLETE,
     summarizeCommits: async (input) => {
       summarized = input;
-      return { status: 'ok', commitCount: 5, repoCount: 2, readRepoCount: 2, failedRepoCount: 0 };
+      return {
+        status: 'ok',
+        commitCount: 5,
+        repoCount: 2,
+        repos: [{ name: 'teammates', commitCount: 3 }, { name: 'logwork-cli', commitCount: 2 }],
+        readRepoCount: 2,
+        failedRepoCount: 0
+      };
     }
   });
   assert.deepEqual(summarized, { date: '2026-11-09', repos: ['/r1', '/r2'] });
   assert.equal(result.commits.commitCount, 5);
   assert.equal(result.notification.message, [
-    'Logwork hôm nay chưa hoàn tất',
     'RO: 4/8h, còn thiếu 4h',
     'Jira: chưa có worklog hôm nay',
-    'Hôm nay: 5 commit trong 2 repo',
+    'Hôm nay 5 commit:',
+    '  • teammates: 3',
+    '  • logwork-cli: 2',
     '',
     'Mở Terminal và chạy: logwork commits today (bản nháp từ commit)'
   ].join('\n'));
@@ -118,7 +127,6 @@ test('reminder message adds commit evidence when RO hours are missing', async ()
 
 test('reminder message stays the same without repos, without commits, or when RO is not missing', async () => {
   const plain = [
-    'Logwork hôm nay chưa hoàn tất',
     'RO: 4/8h, còn thiếu 4h',
     '',
     'Mở Terminal và chạy: logwork'
@@ -195,9 +203,36 @@ test('summarizeTodayCommits counts my commits today in real repos without queryi
     status: 'ok',
     commitCount: 3,
     repoCount: 2,
+    repos: [
+      { name: basename(first.dir), commitCount: 2 },
+      { name: basename(second.dir), commitCount: 1 }
+    ],
     readRepoCount: 3,
     failedRepoCount: 1
   });
+});
+
+test('the commit lines list each repo with its commits, busiest first, at most three', () => {
+  assert.deepEqual(
+    formatCommitLines({ commitCount: 2, repoCount: 1, repos: [{ name: 'teammates', commitCount: 2 }] }),
+    ['Hôm nay 2 commit:', '  • teammates: 2']
+  );
+  assert.deepEqual(
+    formatCommitLines({
+      commitCount: 10,
+      repoCount: 5,
+      repos: [
+        { name: 'api', commitCount: 4 },
+        { name: 'web', commitCount: 3 },
+        { name: 'teammates', commitCount: 1 },
+        { name: 'docs', commitCount: 1 },
+        { name: 'infra', commitCount: 1 }
+      ]
+    }),
+    ['Hôm nay 10 commit:', '  • api: 4', '  • web: 3', '  • teammates: 1', '  • +2 repo khác']
+  );
+  // An older summary without per-repo counts keeps the totals line.
+  assert.deepEqual(formatCommitLines({ commitCount: 5, repoCount: 2 }), ['Hôm nay: 5 commit trong 2 repo']);
 });
 
 test('scheduled reminder reads config and mapping repos and passes them to the check', async () => {
@@ -255,7 +290,7 @@ test('reminder test notification shows the commit message format', async () => {
     target: 'both',
     notify: async (value) => { notification = value; return { platform: 'darwin' }; }
   });
-  assert.match(notification.message, /^Đây là notification thử nghiệm\nRO: 6\/8h, còn thiếu 2h\nJira: chưa có worklog hôm nay\nHôm nay: 5 commit trong 2 repo\n\nMở Terminal và chạy: logwork commits today/);
+  assert.match(notification.message, /^RO: 6\/8h, còn thiếu 2h\nJira: chưa có worklog hôm nay\nHôm nay 5 commit:\n  • teammates: 3\n  • logwork-cli: 2\n\nMở Terminal và chạy: logwork commits today/);
 
   await sendTestReminderNotification({
     target: 'jira',

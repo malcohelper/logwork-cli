@@ -4,6 +4,12 @@ Each version needs a `## [x.y.z]` section here before its version bump is
 pushed to `main`. The release workflow uses that section as the GitHub Release
 description.
 
+## [Unreleased]
+
+### Changed
+- **Reminder lists the repos.** Instead of "Hôm nay: 5 commit trong 2 repo", the reminder shows "Hôm nay 5 commit:" with one line per repo ("• teammates: 3"), busiest first. At most three repos are listed; the rest show as "• +N repo khác".
+- **Shorter reminder.** The "Logwork hôm nay chưa hoàn tất" header line is gone (the title already says Logwork), so the banner shows the RO/Jira status and the commits first. `logwork reminder test` uses the title "Logwork (thử nghiệm)" and shows the new format.
+
 ## [1.3.1] - 2026-11-10
 
 ### Changed

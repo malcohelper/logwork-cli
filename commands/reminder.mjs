@@ -189,7 +189,7 @@ export function formatReminderHelp() {
 
 The reminder runs Monday-Friday at 17:00 by default. It uses launchd on macOS and Task Scheduler on Windows. RO compares logged and booked hours; Jira checks whether the current user has a worklog today.
 
---repo (repeatable) sets the git repos whose commits today are counted when RO hours are missing, for example "Hôm nay: 5 commit trong 2 repo", and points to \`logwork commits today\` for a draft. Repos listed on project mappings are also used. --repo replaces the saved list; --no-repos clears it; without either the saved list is kept.
+--repo (repeatable) sets the git repos whose commits today are counted per repo when RO hours are missing, as "Hôm nay 5 commit:" with one line per repo (for example "• teammates: 3"), and points to \`logwork commits today\` for a draft. Repos listed on project mappings are also used. --repo replaces the saved list; --no-repos clears it; without either the saved list is kept.
 
 The schedule stores the absolute path of the Node that ran \`reminder enable\`. After upgrading or removing that Node (nvm, Homebrew), run \`logwork reminder enable\` or \`logwork setup\` again; \`logwork reminder status\` warns when the path is gone.`;
 }

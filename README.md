@@ -300,12 +300,13 @@ logwork reminder disable
 
 For Resource Optimiser, the reminder compares today's logged and booked hours. For Jira, it checks whether you have any worklog today. Complete days stay silent.
 
-With `--repo` (repeatable; `--no-repos` clears the list), a reminder about missing RO hours also counts your commits today in those repos and points you to a draft:
+With `--repo` (repeatable; `--no-repos` clears the list), a reminder about missing RO hours also lists your commits today, one line per repo (by folder name, busiest first, up to three, then "+N repo khác"), and points you to a draft. The notification has no header line; the title says Logwork:
 
 ```text
-Logwork hôm nay chưa hoàn tất
 RO: 4/8h, còn thiếu 4h
-Hôm nay: 5 commit trong 2 repo
+Hôm nay 5 commit:
+  • teammates: 3
+  • logwork-cli: 2
 
 Mở Terminal và chạy: logwork commits today (bản nháp từ commit)
 ```
