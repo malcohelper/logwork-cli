@@ -15,7 +15,7 @@ Credentials stay local. Resource Optimiser passwords and 2FA codes, and Jira Per
 
 ## Install
 
-Requirements: macOS, Windows 10/11 or Linux (with systemd), Node.js 22+, npm.
+Requirements: macOS, Windows 10/11, Linux (with systemd) or WSL, Node.js 22+, npm.
 
 ```bash
 npm install -g logwork-cli
@@ -30,6 +30,13 @@ sudo dnf install libsecret gnome-keyring libnotify             # Fedora
 ```
 
 GNOME and KDE desktops usually have a keyring running already (KWallet and KeePassXC work too). If `npm install -g` needs `sudo` with your distro's Node, prefer nvm or a user npm prefix (`npm config set prefix ~/.npm-global`); `logwork setup` explains the options when it cannot link the command. When an AI assistant calls the `login` tool, a terminal window (`$TERMINAL`, `x-terminal-emulator`, GNOME Terminal, Konsole, ...) opens for the password and 2FA.
+
+**WSL** (Windows Subsystem for Linux) needs none of those packages. Inside WSL, logwork uses the Windows side through interop:
+- login sessions go to **Windows Credential Manager**, the same entries a Windows install uses, so logging in on either side covers both;
+- the reminder is a **Windows Task Scheduler** task (`Logwork Reminder (WSL <distro>)`) that starts the distro with `wsl.exe` at reminder time, even when no WSL terminal is open, and shows a **Windows notification**;
+- the `login` MCP tool opens a Windows console window running WSL.
+
+WSL interop must be on (the default). Set `LOGWORK_WSL=0` to use the plain Linux behavior instead (a Linux keyring, systemd, `notify-send`). If you also run logwork on Windows itself, enable the reminder on one side only, or you get two notifications.
 
 `logwork setup` does the following:
 - installs the runtime to `~/.logwork-cli` (`%USERPROFILE%\.logwork-cli` on Windows),
@@ -79,7 +86,7 @@ logwork status             # RO and Jira status, never prints tokens
 logwork logout [ro|jira]
 ```
 
-Sessions are stored in macOS Keychain, Windows Credential Manager, or on Linux the Secret Service (GNOME Keyring, KWallet) through `secret-tool`. The default Jira URL is `https://jira-vnv.vinova.sg`.
+Sessions are stored in macOS Keychain, Windows Credential Manager (also from WSL), or on Linux the Secret Service (GNOME Keyring, KWallet) through `secret-tool`. The default Jira URL is `https://jira-vnv.vinova.sg`.
 
 ## Commands
 
@@ -322,7 +329,7 @@ Mở Terminal và chạy: logwork commits today (bản nháp từ commit)
 
 Repos listed on project mappings are used too. Run outside a git repo, `logwork commits today` falls back to these repos. If reading commits fails, the reminder shows the plain message.
 
-macOS uses a user `launchd` agent (`sg.vinova.logwork-cli.reminder`), Windows uses Task Scheduler (`Logwork Reminder`), and Linux uses a systemd user timer (`~/.config/systemd/user/logwork-cli-reminder.timer`) with `notify-send`. No schedule stores credentials. On macOS and Linux the schedule runs the `logwork-launch` launcher, so Node upgrades do not break it. On Windows it runs a stable `node.exe`. A schedule from an older version that still runs a raw Node path is flagged by `logwork reminder status`; run `logwork setup` to re-register it.
+macOS uses a user `launchd` agent (`sg.vinova.logwork-cli.reminder`), Windows uses Task Scheduler (`Logwork Reminder`), Linux uses a systemd user timer (`~/.config/systemd/user/logwork-cli-reminder.timer`) with `notify-send`, and WSL uses a Windows Task Scheduler task (`Logwork Reminder (WSL <distro>)`) that runs `wsl.exe -d <distro> -u <user> --exec ~/.logwork-cli/bin/logwork-launch reminder run` and shows a Windows notification. No schedule stores credentials. On macOS and Linux the schedule runs the `logwork-launch` launcher, so Node upgrades do not break it. On Windows it runs a stable `node.exe`. A schedule from an older version that still runs a raw Node path is flagged by `logwork reminder status`; run `logwork setup` to re-register it.
 
 ## Reconcile RO And Jira
 

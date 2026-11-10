@@ -4,6 +4,16 @@ Each version needs a `## [x.y.z]` section here before its version bump is
 pushed to `main`. The release workflow uses that section as the GitHub Release
 description.
 
+## [Unreleased]
+
+### Added
+- **WSL support.** Inside WSL, logwork uses the Windows side through interop instead of Linux services WSL usually lacks:
+  - Login sessions go to Windows Credential Manager, under the same entries a Windows install uses, so one login covers both. The value is JSON on stdin of `powershell.exe` and the script goes as `-EncodedCommand`, never in argv. An older `logwork-helper` session in the Windows vault is picked up.
+  - The reminder is a Windows Task Scheduler task, `Logwork Reminder (WSL <distro>)`, that runs `wsl.exe -d <distro> -u <user> --exec ~/.logwork-cli/bin/logwork-launch reminder run`. It fires even when no WSL terminal is open. The notification is a Windows toast.
+  - The MCP `login` tool opens a Windows console window running WSL for the password and 2FA.
+  - WSL is detected from `WSL_DISTRO_NAME`, `WSL_INTEROP` or the kernel release. `LOGWORK_WSL=0` keeps the plain Linux behavior (secret-tool, systemd, notify-send).
+  - CI runs the suite in Ubuntu 24.04 on WSL, plus real Credential Manager and Task Scheduler round trips through interop.
+
 ## [1.4.0] - 2026-11-10
 
 ### Added

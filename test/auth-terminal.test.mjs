@@ -47,7 +47,7 @@ const LINUX_COMMAND = "cd '/home/jane/.logwork-cli' && LOGWORK_HOME='/home/jane/
 test('startAuthLoginTerminal opens a Linux terminal window that stays open after login', async () => {
   const launched = [];
   const result = await startAuthLoginTerminal({
-    platform: 'linux',
+    platform: 'linux', wsl: false,
     env: { DISPLAY: ':0' },
     command: LINUX_COMMAND,
     findCommand: async (name) => (name === 'gnome-terminal' ? '/usr/bin/gnome-terminal' : null),
@@ -81,7 +81,7 @@ test('Linux terminal choice: $TERMINAL first, skips ones that fail to start', as
 
 test('Linux login falls back to printed instructions without a desktop or a terminal', async () => {
   const headless = await startAuthLoginTerminal({
-    platform: 'linux',
+    platform: 'linux', wsl: false,
     env: {},
     command: LINUX_COMMAND,
     findCommand: async () => { throw new Error('must not look for terminals without a display'); },
@@ -92,7 +92,7 @@ test('Linux login falls back to printed instructions without a desktop or a term
   assert.equal(headless.terminalCommand, LINUX_COMMAND);
 
   const noTerminal = await startAuthLoginTerminal({
-    platform: 'linux',
+    platform: 'linux', wsl: false,
     env: { DISPLAY: ':0' },
     command: LINUX_COMMAND,
     findCommand: async () => null,

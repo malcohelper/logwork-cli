@@ -6,7 +6,7 @@ This guide describes the complete Resource Optimiser and Jira workflow available
 
 Requirements:
 
-- macOS, Windows 10/11, or Linux with systemd. On Linux also `secret-tool` with a Secret Service (`libsecret-tools` + `gnome-keyring`, or KWallet) and `notify-send` (`libnotify-bin`).
+- macOS, Windows 10/11, Linux with systemd, or WSL. On Linux also `secret-tool` with a Secret Service (`libsecret-tools` + `gnome-keyring`, or KWallet) and `notify-send` (`libnotify-bin`). WSL needs neither: it uses Windows Credential Manager, Task Scheduler and toasts through interop (`LOGWORK_WSL=0` turns that off).
 - Node.js 22 or newer.
 - npm.
 - A Resource Optimiser account.
@@ -38,7 +38,7 @@ logwork status
 
 Upgrading from `logwork-helper`: see [Upgrading from logwork-helper](../README.md#upgrading-from-logwork-helper).
 
-Resource Optimiser credentials and Jira PATs are never accepted by MCP tools. The final sessions are stored in macOS Keychain, Windows Credential Manager or the Linux Secret Service (`secret-tool`).
+Resource Optimiser credentials and Jira PATs are never accepted by MCP tools. The final sessions are stored in macOS Keychain, Windows Credential Manager (also from WSL, through `powershell.exe`) or the Linux Secret Service (`secret-tool`).
 
 ## Capability Map
 
@@ -464,6 +464,7 @@ Behavior:
 - macOS uses a user `launchd` agent (`sg.vinova.logwork-cli.reminder`).
 - Windows uses an interactive user Task Scheduler task (`Logwork Reminder`).
 - Linux uses a systemd user timer (`~/.config/systemd/user/logwork-cli-reminder.timer` and `.service`) and shows the notification with `notify-send`. Without a user systemd, `reminder enable` prints a `crontab` line to use instead.
+- WSL uses a Windows Task Scheduler task (`Logwork Reminder (WSL <distro>)`) that runs `wsl.exe -d <distro> -u <user> --exec <launcher> reminder run`, and a Windows toast. If logwork also runs on Windows itself, enable the reminder on one side only.
 - The scheduler runs the same command as the MCP configs with `reminder run --home ~/.logwork-cli`:
   - macOS and Linux: `~/.logwork-cli/bin/logwork-launch`, which finds a Node 22+ itself, so a Node upgrade does not break the reminder;
   - Windows: a stable `node.exe` (the nvm-windows symlink, or `C:\Program Files\nodejs\node.exe`) plus `~/.logwork-cli/bin/logwork.mjs`.
@@ -583,7 +584,7 @@ The release doctor checks package version consistency, self-dependencies, clean/
 | Runtime Node record | `.logwork-cli/runtime.json` (Node path and version from `logwork setup`) | No |
 | Launcher (macOS, Linux) | `.logwork-cli/bin/logwork-launch`, written by `logwork setup` | No |
 | MCP config backups | `<client config>.logwork-backup-<timestamp>`, next to each edited client config | No |
-| RO/Jira sessions | OS credential store, service `logwork-cli` (Linux: Secret Service attributes `service=logwork-cli`, `account=<name>`) | Yes |
+| RO/Jira sessions | OS credential store, service `logwork-cli` (Linux: Secret Service attributes `service=logwork-cli`, `account=<name>`; WSL: the Windows Credential Manager targets `logwork-cli:<name>`) | Yes |
 
 The helper home is `~/.logwork-cli` on macOS and Linux, and `%USERPROFILE%\.logwork-cli` on Windows. `LOGWORK_HOME` overrides it; the older `LOGWORK_HELPER_HOME` is still honored.
 
@@ -619,6 +620,14 @@ dbus-run-session -- sh -c 'printf pw | gnome-keyring-daemon --unlock --component
 ```
 
 Without `TEST_LINUX_SECRET_SERVICE=1` (or off Linux) it is skipped.
+
+A WSL CI job runs the suite inside Ubuntu on WSL, then the real interop tests (Credential Manager through `powershell.exe`, a Task Scheduler task through `schtasks.exe`):
+
+```bash
+TEST_WSL_INTEROP=1 node --import ./test/helpers/setup.mjs --test test/wsl.test.mjs
+```
+
+The test bootstrap sets `LOGWORK_WSL=0`, so the rest of the suite runs as plain Linux inside WSL.
 
 Recommended end-user checks after installation:
 

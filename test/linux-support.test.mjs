@@ -135,8 +135,8 @@ test('secret-tool runner writes the value to stdin and collects stdout', async (
 
 test('platform credential storage on Linux uses secret-tool with separate accounts and no legacy lookup', async () => {
   const tool = fakeSecretTool();
-  const token = createCredentialTokenStorage({ platform: 'linux', run: tool.run });
-  const email = createCredentialEmailStorage({ platform: 'linux', run: tool.run });
+  const token = createCredentialTokenStorage({ platform: 'linux', wsl: false, run: tool.run });
+  const email = createCredentialEmailStorage({ platform: 'linux', wsl: false, run: tool.run });
   await token.set('session');
   await email.set('me@example.com');
   assert.equal(await token.get(), 'session');
@@ -147,7 +147,7 @@ test('platform credential storage on Linux uses secret-tool with separate accoun
   ]);
 
   const empty = fakeSecretTool();
-  assert.equal(await createCredentialTokenStorage({ platform: 'linux', run: empty.run }).get(), null);
+  assert.equal(await createCredentialTokenStorage({ platform: 'linux', wsl: false, run: empty.run }).get(), null);
   assert.ok(!empty.calls.some((call) => call.args.includes('logwork-helper')), 'Linux never had logwork-helper entries');
 });
 
@@ -156,7 +156,7 @@ test('Linux notifications go through notify-send with plain arguments', async ()
   await sendOsNotification({
     title: 'Logwork',
     message: 'RO: 6/8h',
-    platform: 'linux',
+    platform: 'linux', wsl: false,
     linuxNotifier: async (value) => { routed.push(value); }
   });
   assert.deepEqual(routed, [{ title: 'Logwork', message: 'RO: 6/8h' }]);
@@ -239,7 +239,7 @@ test('Linux reminder install writes both units, reloads and enables the timer', 
   const written = {};
   const calls = [];
   const result = await installReminderScheduler(CONFIG, {
-    platform: 'linux',
+    platform: 'linux', wsl: false,
     home: HOME,
     env: {},
     launch: LAUNCH,
@@ -265,7 +265,7 @@ test('Linux reminder install writes both units, reloads and enables the timer', 
 
 test('Linux reminder install without a user systemd explains the cron alternative', async () => {
   const options = {
-    platform: 'linux',
+    platform: 'linux', wsl: false,
     home: HOME,
     env: {},
     launch: LAUNCH,
@@ -308,7 +308,7 @@ test('Linux reminder status, node path and removal', async () => {
     return { code: 0, stdout: 'enabled\n', stderr: '' };
   };
   const status = await getReminderSchedulerStatus({
-    platform: 'linux',
+    platform: 'linux', wsl: false,
     env: {},
     userHome: '/home/u',
     run,
@@ -323,7 +323,7 @@ test('Linux reminder status, node path and removal', async () => {
   assert.ok(calls.includes('--user is-enabled logwork-cli-reminder.timer'));
 
   const missing = await getReminderSchedulerStatus({
-    platform: 'linux',
+    platform: 'linux', wsl: false,
     env: {},
     userHome: '/home/u',
     run: async () => { throw new Error('must not run'); },
@@ -333,7 +333,7 @@ test('Linux reminder status, node path and removal', async () => {
   assert.equal(missing.nodePath, null);
 
   assert.equal(await readReminderSchedulerNodePath({
-    platform: 'linux',
+    platform: 'linux', wsl: false,
     env: {},
     userHome: '/home/u',
     readFile: async () => { throw new Error('ENOENT'); }
@@ -342,7 +342,7 @@ test('Linux reminder status, node path and removal', async () => {
   const removed = [];
   const removeCalls = [];
   const result = await removeReminderScheduler({
-    platform: 'linux',
+    platform: 'linux', wsl: false,
     env: {},
     userHome: '/home/u',
     uid: 1000,

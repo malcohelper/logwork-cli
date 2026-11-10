@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This is the `logwork-cli` npm package (repo `malcohelper/logwork-cli`): a Node.js 22+ ESM project for macOS, Windows and Linux with three surfaces over shared workflows. It provides a terminal UI, a CLI, and a local MCP server that log work to Resource Optimiser and Jira.
+This is the `logwork-cli` npm package (repo `malcohelper/logwork-cli`): a Node.js 22+ ESM project for macOS, Windows, Linux and WSL with three surfaces over shared workflows. It provides a terminal UI, a CLI, and a local MCP server that log work to Resource Optimiser and Jira.
 
 - `bin/logwork.mjs` is the only executable entry point (npm bins `logwork` and `logwork-cli`). It dispatches `logwork <command>` in-process to `commands/*.mjs`. With no command it opens the terminal UI; `logwork mcp` starts the MCP server.
 - `skills/logwork/SKILL.md` is the agent procedure for logging from commits; it is served as the MCP prompt `log_from_commits` and installed by `logwork skill install`. Keep it tool-accurate when MCP tools change.

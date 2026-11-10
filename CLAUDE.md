@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`logwork-cli` (npm, repo `malcohelper/logwork-cli`, Node 22+, ESM `.mjs`, macOS, Windows and Linux) logs work hours to Resource Optimiser (RO) and self-hosted Jira. The package was renamed from `logwork-helper` in 1.0.0. The `logwork-helper` command no longer exists.
+`logwork-cli` (npm, repo `malcohelper/logwork-cli`, Node 22+, ESM `.mjs`, macOS, Windows, Linux and WSL) logs work hours to Resource Optimiser (RO) and self-hosted Jira. The package was renamed from `logwork-helper` in 1.0.0. The `logwork-helper` command no longer exists.
 
 ## Layout
 
@@ -62,7 +62,7 @@ User-facing CLI:
 
 `LOGWORK_DRY_RUN=1` (checked with `isDryRun()` from `lib/config.mjs`) makes the RO write functions in `lib/ro-api-entries.mjs` (re-exported by `lib/api.mjs`) and every non-GET `jiraApiFetch` call in `lib/jira-api.mjs` return `{ dryRun: true, method, path, body }` instead of calling the API, with no token or headers. Reads still hit the API. The Jira apply then reports `status: 'dry_run'` and records `dry_run` entries in the apply ledger.
 
-`LOGWORK_HOME` relocates local state; `LOGWORK_HELPER_HOME` is still honored. The test bootstrap `test/helpers/setup.mjs` (loaded with `--import` by every test script) clears all `LOGWORK_*` variables from the shell and sets `LOGWORK_HOME` to a fresh temp dir per test process, so tests never read the real `~/.logwork-cli` and the legacy migration stays off. Tests may still set these variables themselves. MCP install, launcher and reminder tests must pass a temp user home (or an in-memory `fsApi`) and fake command runners; never run a real `claude mcp`, launchd, schtasks, systemctl, secret-tool or setup against the machine. The real Secret Service round trip runs only with `TEST_LINUX_SECRET_SERVICE=1` (`npm run test:linux-credential`, Linux CI).
+`LOGWORK_HOME` relocates local state; `LOGWORK_HELPER_HOME` is still honored. The test bootstrap `test/helpers/setup.mjs` (loaded with `--import` by every test script) clears all `LOGWORK_*` variables from the shell and sets `LOGWORK_HOME` to a fresh temp dir per test process, so tests never read the real `~/.logwork-cli` and the legacy migration stays off. Tests may still set these variables themselves. MCP install, launcher and reminder tests must pass a temp user home (or an in-memory `fsApi`) and fake command runners; never run a real `claude mcp`, launchd, schtasks, systemctl, secret-tool or setup against the machine. The real Secret Service round trip runs only with `TEST_LINUX_SECRET_SERVICE=1` (`npm run test:linux-credential`, Linux CI). The bootstrap sets `LOGWORK_WSL=0`; WSL tests pass `wsl: true`, and the real interop tests in `test/wsl.test.mjs` run only with `TEST_WSL_INTEROP=1` (CI job `wsl`, Ubuntu on WSL via `Vampire/setup-wsl`).
 
 ## Logwork entry model (important)
 
@@ -122,7 +122,7 @@ Rules:
 
 ## Auth and local state
 
-- **RO auth** (`lib/api-auth.mjs` and its `api-auth-*` helpers, `lib/auth.mjs`) runs the Keycloak login over HTTP from the terminal: email, password, 2FA. The session, including the refresh token, is stored in macOS Keychain, Windows Credential Manager, or the Linux Secret Service via `secret-tool` (`lib/linux-secret-service.mjs`, value on stdin/stdout, no file fallback) (`lib/credential-store.mjs`) under service `logwork-cli`. On a 401, workflows force a re-login and retry once.
+- **RO auth** (`lib/api-auth.mjs` and its `api-auth-*` helpers, `lib/auth.mjs`) runs the Keycloak login over HTTP from the terminal: email, password, 2FA. The session, including the refresh token, is stored in macOS Keychain, Windows Credential Manager, or the Linux Secret Service via `secret-tool` (`lib/linux-secret-service.mjs`, value on stdin/stdout, no file fallback) (`lib/credential-store.mjs`) under service `logwork-cli`. Under WSL (`lib/wsl.mjs#isWsl`: `WSL_DISTRO_NAME`/`WSL_INTEROP`/microsoft kernel; `LOGWORK_WSL=0` disables) it uses the Windows Credential Manager targets through `powershell.exe -EncodedCommand`, Windows toasts, a Task Scheduler task `Logwork Reminder (WSL <distro>)` running `wsl.exe -d <distro> -u <user> --exec <launcher> reminder run`, and the MCP `login` tool opens a Windows console running WSL. On a 401, workflows force a re-login and retry once.
 - **Jira** uses a PAT saved via `logwork login jira`.
 - **Local files** live under `~/.logwork-cli`:
   - project mappings in `.logwork.json` (`tickets`, `keywords`, optional `repos` of git repo roots; user scope; or project scope in the cwd, where a legacy `.logwork-helper.json` is used until a `.logwork.json` exists);

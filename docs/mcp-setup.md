@@ -92,6 +92,23 @@ startup_timeout_sec = 20
 tool_timeout_sec = 120
 ```
 
+### Windows IDEs with logwork installed in WSL
+
+`logwork setup` inside WSL configures the clients that run in WSL (for example Claude Code or Codex CLI started from a WSL shell). A client running on Windows (Cursor, VS Code, Claude Desktop) can start the WSL install through `wsl.exe`:
+
+```json
+{
+  "mcpServers": {
+    "logwork": {
+      "command": "wsl.exe",
+      "args": ["-d", "<distro>", "--exec", "/home/<user>/.logwork-cli/bin/logwork-launch", "mcp"]
+    }
+  }
+}
+```
+
+`<distro>` is the name `wsl.exe -l` shows (inside WSL: `echo $WSL_DISTRO_NAME`). Or install logwork on Windows too: both use the same Windows Credential Manager login.
+
 ### GitHub Copilot / VS Code
 
 Workspace `.vscode/mcp.json`, or your VS Code user `mcp.json`:
@@ -158,7 +175,7 @@ Previews expire after 1 hour. They are also lost when the server restarts.
 | Config | `map_project` | local write, `confirm` | Map ticket prefixes, keywords or git repos (`repos`) to an RO project (`.logwork.json`). |
 | Config | `reminder` | `action`: status / enable / disable / test | Native OS reminder. Every action except `status` needs `confirm: true`. |
 | Config | `update` | `action`: check / install | npm self-update. `install` needs `confirm: true`. |
-| Auth | `login` | local | `target: "ro"` (default) opens a terminal login (macOS Terminal; on a Linux desktop `$TERMINAL`, `x-terminal-emulator`, GNOME Terminal, Konsole, ...) or explains it (Windows, no desktop). `target: "jira"` explains how to save a PAT. Never accepts credentials. |
+| Auth | `login` | local | `target: "ro"` (default) opens a terminal login (macOS Terminal; on a Linux desktop `$TERMINAL`, `x-terminal-emulator`, GNOME Terminal, Konsole, ...; under WSL a Windows console running WSL) or explains it (Windows, no desktop). `target: "jira"` explains how to save a PAT. Never accepts credentials. |
 
 ### Tool Name Changes From logwork-helper
 
@@ -397,7 +414,7 @@ The two applies are intentionally not atomic. `log_work` never writes Jira, and 
 - **Reminder:**
   - `reminder` with `action: "status"` is read-only.
   - `enable` (with optional `time` and `target`), `disable` and `test` need `confirm: true` after approval.
-  - macOS uses launchd, Windows uses Task Scheduler and Linux uses a systemd user timer.
+  - macOS uses launchd, Windows uses Task Scheduler, Linux uses a systemd user timer, and WSL uses a Windows Task Scheduler task that starts the distro.
   - Reminder tools never accept credentials, scheduler commands or executable paths.
 
 ### Project Mapping
