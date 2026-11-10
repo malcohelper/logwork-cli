@@ -171,27 +171,6 @@ The default tasks shared by all projects are:
 | 183 | Testing Activities | create |
 | 111 | Other Activities | other |
 
-## API Notes
-
-- Read bookings: `GET /member-logtime/timesheet`
-- Read worklog tasks: `GET /logwork/tasks?project_id=<id>` and `GET /logwork/tasks/defaults?project_id=<id>`
-- Write an entry: `POST /logwork/entries`
-- Delete an entry: `DELETE /logwork/entries/:id`
-- Resubmit a rejected entry: `PATCH /logwork/entries/:id/resubmit`
-
-```json
-{
-  "worklog_task_id": 71,
-  "type_of_work": "create",
-  "effort_hours": 2,
-  "logdate": "2026-06-01",
-  "project_id": 720,
-  "description": "Implement maintenance mode management and status UI (SCB-213)"
-}
-```
-
-`project_id` is sent only when the worklog task is a shared default task.
-
 ## Set Up MCP
 
 Run `logwork setup` and answer yes for each client. It finds the clients you have and adds or updates the `logwork` server in each:
@@ -253,11 +232,11 @@ Options:
 
 The long forms `--task-name` and `--description` also work. Project and date are always preserved.
 
-Resource Optimiser has no staff API for editing an entry; the edit endpoint is PM-only. So apply **replaces** the entry:
+Resource Optimiser only lets project managers edit an entry. So apply **replaces** the entry:
 
 1. It re-reads the entry and stops if the entry changed after the preview.
-2. It creates the corrected entry with `POST /logwork/entries`.
-3. It deletes the original with `DELETE /logwork/entries/:id`.
+2. It creates the corrected entry.
+3. It deletes the original.
 4. It verifies the new entry.
 
 If the create fails, the original is untouched. If the delete fails, the new entry is deleted again, so nothing changes.
@@ -366,4 +345,4 @@ Updating keeps OS credentials, project mappings, drafts and apply history. Recon
 
 ## License
 
-This project is proprietary and not open source. See [LICENSE](LICENSE).
+[MIT](LICENSE) © 2026 malcohelper and contributors.

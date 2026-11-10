@@ -4,6 +4,12 @@ Each version needs a `## [x.y.z]` section here before its version bump is
 pushed to `main`. The release workflow uses that section as the GitHub Release
 description.
 
+## [1.3.1] - 2026-11-10
+
+### Changed
+- **MIT license.** logwork-cli is now open source under the MIT license (`LICENSE`, `package.json`). Earlier versions were published as proprietary.
+- **README.** The "API Notes" section with the raw Resource Optimiser endpoints is removed; the README describes behavior, not internal API calls.
+
 ## [1.3.0] - 2026-11-09
 
 ### Added
