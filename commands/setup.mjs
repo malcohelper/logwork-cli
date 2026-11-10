@@ -1,6 +1,6 @@
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { delimiter, dirname, join, relative, resolve } from 'node:path';
+import { delimiter, dirname, join, posix, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { redactText } from '../lib/auth-redaction.mjs';
 import { credentialStoreLabel } from '../lib/credential-store.mjs';
@@ -486,7 +486,7 @@ export async function isGlobalPrefixWritable(prefix, {
   platform = process.platform,
   accessFn = fs.access
 } = {}) {
-  const target = platform === 'win32' ? prefix : join(prefix, 'lib', 'node_modules');
+  const target = platform === 'win32' ? prefix : posix.join(prefix, 'lib', 'node_modules');
   try {
     await accessFn(target, fsConstants.W_OK);
     return true;
