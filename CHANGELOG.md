@@ -4,7 +4,7 @@ Each version needs a `## [x.y.z]` section here before its version bump is
 pushed to `main`. The release workflow uses that section as the GitHub Release
 description.
 
-## [Unreleased]
+## [1.5.0] - 2026-11-10
 
 ### Added
 - **WSL support.** Inside WSL, logwork uses the Windows side through interop instead of Linux services WSL usually lacks:
