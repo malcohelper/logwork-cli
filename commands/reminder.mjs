@@ -187,7 +187,7 @@ export function formatReminderHelp() {
   logwork reminder test [--target ro|jira|both] [--yes]
   logwork reminder disable [--yes]
 
-The reminder runs Monday-Friday at 17:00 by default. It uses launchd on macOS and Task Scheduler on Windows. RO compares logged and booked hours; Jira checks whether the current user has a worklog today.
+The reminder runs Monday-Friday at 17:00 by default. It uses launchd on macOS, Task Scheduler on Windows and a systemd user timer on Linux. RO compares logged and booked hours; Jira checks whether the current user has a worklog today.
 
 --repo (repeatable) sets the git repos whose commits today are counted per repo when RO hours are missing, as "Hôm nay 5 commit:" with one line per repo (for example "• teammates: 3"), and points to \`logwork commits today\` for a draft. Repos listed on project mappings are also used. --repo replaces the saved list; --no-repos clears it; without either the saved list is kept.
 

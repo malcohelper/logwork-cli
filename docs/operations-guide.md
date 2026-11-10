@@ -6,7 +6,7 @@ This guide describes the complete Resource Optimiser and Jira workflow available
 
 Requirements:
 
-- macOS or Windows 10/11.
+- macOS, Windows 10/11, or Linux with systemd. On Linux also `secret-tool` with a Secret Service (`libsecret-tools` + `gnome-keyring`, or KWallet) and `notify-send` (`libnotify-bin`).
 - Node.js 22 or newer.
 - npm.
 - A Resource Optimiser account.
@@ -38,7 +38,7 @@ logwork status
 
 Upgrading from `logwork-helper`: see [Upgrading from logwork-helper](../README.md#upgrading-from-logwork-helper).
 
-Resource Optimiser credentials and Jira PATs are never accepted by MCP tools. The final sessions are stored in macOS Keychain or Windows Credential Manager.
+Resource Optimiser credentials and Jira PATs are never accepted by MCP tools. The final sessions are stored in macOS Keychain, Windows Credential Manager or the Linux Secret Service (`secret-tool`).
 
 ## Capability Map
 
@@ -463,8 +463,9 @@ Behavior:
 - Missing auth produces an actionable notification without exposing API details.
 - macOS uses a user `launchd` agent (`sg.vinova.logwork-cli.reminder`).
 - Windows uses an interactive user Task Scheduler task (`Logwork Reminder`).
+- Linux uses a systemd user timer (`~/.config/systemd/user/logwork-cli-reminder.timer` and `.service`) and shows the notification with `notify-send`. Without a user systemd, `reminder enable` prints a `crontab` line to use instead.
 - The scheduler runs the same command as the MCP configs with `reminder run --home ~/.logwork-cli`:
-  - macOS: `~/.logwork-cli/bin/logwork-launch`, which finds a Node 22+ itself, so a Node upgrade does not break the reminder;
+  - macOS and Linux: `~/.logwork-cli/bin/logwork-launch`, which finds a Node 22+ itself, so a Node upgrade does not break the reminder;
   - Windows: a stable `node.exe` (the nvm-windows symlink, or `C:\Program Files\nodejs\node.exe`) plus `~/.logwork-cli/bin/logwork.mjs`.
 - `logwork reminder status` and `logwork doctor` warn when the scheduled command is missing, when the launcher finds no usable Node, and when a schedule from an older version still runs a raw Node path. Run `logwork setup` (or `logwork reminder enable`) to re-register it.
 - Enabling or disabling the reminder also removes a leftover `logwork-helper` schedule.
@@ -571,7 +572,7 @@ The release doctor checks package version consistency, self-dependencies, clean/
 
 ## Local State And Credentials
 
-| State | macOS/Windows helper-home filename | Sensitive credentials |
+| State | Helper-home filename | Sensitive credentials |
 | --- | --- | --- |
 | Installed runtime | `.logwork-cli/` | No |
 | User project mappings | `.logwork-cli/.logwork.json` | No |
@@ -580,11 +581,11 @@ The release doctor checks package version consistency, self-dependencies, clean/
 | Update cache | `.logwork-cli/update-state.json` | No |
 | Reminder config/state | `.logwork-cli/reminder.json`, `.logwork-cli/reminder-state.json` | No |
 | Runtime Node record | `.logwork-cli/runtime.json` (Node path and version from `logwork setup`) | No |
-| Launcher (macOS) | `.logwork-cli/bin/logwork-launch`, written by `logwork setup` | No |
+| Launcher (macOS, Linux) | `.logwork-cli/bin/logwork-launch`, written by `logwork setup` | No |
 | MCP config backups | `<client config>.logwork-backup-<timestamp>`, next to each edited client config | No |
-| RO/Jira sessions | OS credential store, service `logwork-cli` | Yes |
+| RO/Jira sessions | OS credential store, service `logwork-cli` (Linux: Secret Service attributes `service=logwork-cli`, `account=<name>`) | Yes |
 
-The helper home is `~/.logwork-cli` on macOS and `%USERPROFILE%\.logwork-cli` on Windows. `LOGWORK_HOME` overrides it; the older `LOGWORK_HELPER_HOME` is still honored.
+The helper home is `~/.logwork-cli` on macOS and Linux, and `%USERPROFILE%\.logwork-cli` on Windows. `LOGWORK_HOME` overrides it; the older `LOGWORK_HELPER_HOME` is still honored.
 
 Migration from `logwork-helper` happens on the first run, unless `LOGWORK_HOME` (or `LOGWORK_HELPER_HOME`) is set:
 - State files are copied once from `~/.logwork-helper`, and `.logwork-helper.json` is renamed to `.logwork.json` on the way. The old directory is left in place. A marker file (`.migrated-from-logwork-helper`) records the copy.
@@ -610,6 +611,14 @@ npm run test:windows-credential
 ```
 
 That integration test stores, reads, and deletes a dedicated test credential. On non-Windows systems it is skipped by design.
+
+Linux CI runs the same lifecycle against a real GNOME Keyring in a private D-Bus session:
+
+```bash
+dbus-run-session -- sh -c 'printf pw | gnome-keyring-daemon --unlock --components=secrets >/dev/null && TEST_LINUX_SECRET_SERVICE=1 npm run test:linux-credential'
+```
+
+Without `TEST_LINUX_SECRET_SERVICE=1` (or off Linux) it is skipped.
 
 Recommended end-user checks after installation:
 

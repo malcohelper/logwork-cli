@@ -73,7 +73,7 @@ The gate must pass all of the following:
 - Confirm the `update` tool requires `confirm: true` for `action: "install"`, and `reconcile` takes preset periods only with no credential or confirmation fields.
 - Run `logwork reconcile this-week` and confirm it reports RO/Jira daily totals without writing either system.
 - On a machine with an older `logwork-helper` install, confirm the first run copies state to `~/.logwork-cli` and `logwork status` shows the existing session without a new login.
-- Confirm the Windows CI job passes the dedicated `Verify Windows Credential Manager integration` step.
+- Confirm the Windows CI job passes the dedicated `Verify Windows Credential Manager integration` step, and the Linux job passes `Verify Linux Secret Service integration`.
 - Run `logwork reminder test`, confirm a native notification appears, then verify `logwork reminder status` and clean up with `logwork reminder disable`.
 - Run `logwork status` and confirm no token is printed.
 

@@ -118,7 +118,7 @@ const HELP_CASES = [
   [['release', '--help'], [/logwork release doctor \[--full\]/, /npm pack --dry-run/]],
   [['history', '--help'], [/logwork history \[--target ro\|jira\|both\]/, /local apply result ledger/]],
   [['update', '--help'], [/update check \[--force\]/, /update install \[--version <semver>\]/]],
-  [['reminder', '--help'], [/logwork reminder enable \[--time HH:mm\]/, /launchd on macOS and Task Scheduler on Windows/]],
+  [['reminder', '--help'], [/logwork reminder enable \[--time HH:mm\]/, /launchd on macOS, Task Scheduler on Windows and a systemd user timer on Linux/]],
   [['reconcile', '--help'], [/reconcile \[today\|yesterday\|this-week/]],
   [['query', '--help'], [/logwork query \[today\|yesterday/, /logwork edit/]],
   [['quick', '--help'], [/logwork quick -m/, /description/]],

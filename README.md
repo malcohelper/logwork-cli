@@ -15,12 +15,21 @@ Credentials stay local. Resource Optimiser passwords and 2FA codes, and Jira Per
 
 ## Install
 
-Requirements: macOS or Windows 10/11, Node.js 22+, npm.
+Requirements: macOS, Windows 10/11 or Linux (with systemd), Node.js 22+, npm.
 
 ```bash
 npm install -g logwork-cli
 logwork setup
 ```
+
+**Linux** also needs a Secret Service for the login sessions and `notify-send` for the reminder:
+
+```bash
+sudo apt install libsecret-tools gnome-keyring libnotify-bin   # Debian/Ubuntu
+sudo dnf install libsecret gnome-keyring libnotify             # Fedora
+```
+
+GNOME and KDE desktops usually have a keyring running already (KWallet and KeePassXC work too). If `npm install -g` needs `sudo` with your distro's Node, use nvm or set a user npm prefix instead.
 
 `logwork setup` does the following:
 - installs the runtime to `~/.logwork-cli` (`%USERPROFILE%\.logwork-cli` on Windows),
@@ -70,7 +79,7 @@ logwork status             # RO and Jira status, never prints tokens
 logwork logout [ro|jira]
 ```
 
-Sessions are stored in macOS Keychain or Windows Credential Manager. The default Jira URL is `https://jira-vnv.vinova.sg`.
+Sessions are stored in macOS Keychain, Windows Credential Manager, or on Linux the Secret Service (GNOME Keyring, KWallet) through `secret-tool`. The default Jira URL is `https://jira-vnv.vinova.sg`.
 
 ## Commands
 
@@ -313,7 +322,7 @@ Mở Terminal và chạy: logwork commits today (bản nháp từ commit)
 
 Repos listed on project mappings are used too. Run outside a git repo, `logwork commits today` falls back to these repos. If reading commits fails, the reminder shows the plain message.
 
-macOS uses a user `launchd` agent (`sg.vinova.logwork-cli.reminder`) and Windows uses Task Scheduler (`Logwork Reminder`). Neither schedule stores credentials. On macOS the schedule runs the `logwork-launch` launcher, so Node upgrades do not break it. On Windows it runs a stable `node.exe`. A schedule from an older version that still runs a raw Node path is flagged by `logwork reminder status`; run `logwork setup` to re-register it.
+macOS uses a user `launchd` agent (`sg.vinova.logwork-cli.reminder`), Windows uses Task Scheduler (`Logwork Reminder`), and Linux uses a systemd user timer (`~/.config/systemd/user/logwork-cli-reminder.timer`) with `notify-send`. No schedule stores credentials. On macOS and Linux the schedule runs the `logwork-launch` launcher, so Node upgrades do not break it. On Windows it runs a stable `node.exe`. A schedule from an older version that still runs a raw Node path is flagged by `logwork reminder status`; run `logwork setup` to re-register it.
 
 ## Reconcile RO And Jira
 

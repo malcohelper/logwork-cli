@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`logwork-cli` (npm, repo `malcohelper/logwork-cli`, Node 22+, ESM `.mjs`, macOS and Windows) logs work hours to Resource Optimiser (RO) and self-hosted Jira. The package was renamed from `logwork-helper` in 1.0.0. The `logwork-helper` command no longer exists.
+`logwork-cli` (npm, repo `malcohelper/logwork-cli`, Node 22+, ESM `.mjs`, macOS, Windows and Linux) logs work hours to Resource Optimiser (RO) and self-hosted Jira. The package was renamed from `logwork-helper` in 1.0.0. The `logwork-helper` command no longer exists.
 
 ## Layout
 
@@ -62,7 +62,7 @@ User-facing CLI:
 
 `LOGWORK_DRY_RUN=1` (checked with `isDryRun()` from `lib/config.mjs`) makes the RO write functions in `lib/ro-api-entries.mjs` (re-exported by `lib/api.mjs`) and every non-GET `jiraApiFetch` call in `lib/jira-api.mjs` return `{ dryRun: true, method, path, body }` instead of calling the API, with no token or headers. Reads still hit the API. The Jira apply then reports `status: 'dry_run'` and records `dry_run` entries in the apply ledger.
 
-`LOGWORK_HOME` relocates local state; `LOGWORK_HELPER_HOME` is still honored. The test bootstrap `test/helpers/setup.mjs` (loaded with `--import` by every test script) clears all `LOGWORK_*` variables from the shell and sets `LOGWORK_HOME` to a fresh temp dir per test process, so tests never read the real `~/.logwork-cli` and the legacy migration stays off. Tests may still set these variables themselves. MCP install, launcher and reminder tests must pass a temp user home (or an in-memory `fsApi`) and fake command runners; never run a real `claude mcp`, launchd, schtasks or setup against the machine.
+`LOGWORK_HOME` relocates local state; `LOGWORK_HELPER_HOME` is still honored. The test bootstrap `test/helpers/setup.mjs` (loaded with `--import` by every test script) clears all `LOGWORK_*` variables from the shell and sets `LOGWORK_HOME` to a fresh temp dir per test process, so tests never read the real `~/.logwork-cli` and the legacy migration stays off. Tests may still set these variables themselves. MCP install, launcher and reminder tests must pass a temp user home (or an in-memory `fsApi`) and fake command runners; never run a real `claude mcp`, launchd, schtasks, systemctl, secret-tool or setup against the machine. The real Secret Service round trip runs only with `TEST_LINUX_SECRET_SERVICE=1` (`npm run test:linux-credential`, Linux CI).
 
 ## Logwork entry model (important)
 
@@ -122,7 +122,7 @@ Rules:
 
 ## Auth and local state
 
-- **RO auth** (`lib/api-auth.mjs` and its `api-auth-*` helpers, `lib/auth.mjs`) runs the Keycloak login over HTTP from the terminal: email, password, 2FA. The session, including the refresh token, is stored in macOS Keychain or Windows Credential Manager (`lib/credential-store.mjs`) under service `logwork-cli`. On a 401, workflows force a re-login and retry once.
+- **RO auth** (`lib/api-auth.mjs` and its `api-auth-*` helpers, `lib/auth.mjs`) runs the Keycloak login over HTTP from the terminal: email, password, 2FA. The session, including the refresh token, is stored in macOS Keychain, Windows Credential Manager, or the Linux Secret Service via `secret-tool` (`lib/linux-secret-service.mjs`, value on stdin/stdout, no file fallback) (`lib/credential-store.mjs`) under service `logwork-cli`. On a 401, workflows force a re-login and retry once.
 - **Jira** uses a PAT saved via `logwork login jira`.
 - **Local files** live under `~/.logwork-cli`:
   - project mappings in `.logwork.json` (`tickets`, `keywords`, optional `repos` of git repo roots; user scope; or project scope in the cwd, where a legacy `.logwork-helper.json` is used until a `.logwork.json` exists);
@@ -132,12 +132,12 @@ Rules:
   - the update cache;
   - the reminder config (including optional commit-summary `repos`);
   - `runtime.json`, written by `logwork setup` (`lib/node-runtime.mjs`): the absolute node path and version. The launcher tries that node first.
-  - `bin/logwork-launch` (macOS/Linux, not in git): MCP configs and the launchd plist run it. Windows configs and the scheduled task store a `node.exe` path instead. `logwork doctor` and `logwork reminder status` check the launcher (`--version`, which Node it picks), and flag a schedule that still runs a raw node path (`inspectScheduledCommand` status `legacy`).
+  - `bin/logwork-launch` (macOS/Linux, not in git): MCP configs, the launchd plist and the Linux systemd user service run it. Windows configs and the scheduled task store a `node.exe` path instead. `logwork doctor` and `logwork reminder status` check the launcher (`--version`, which Node it picks), and flag a schedule that still runs a raw node path (`inspectScheduledCommand` status `legacy`).
   - MCP client config backups `<file>.logwork-backup-<YYYYMMDDHHmmss>` live next to each edited client config, not in the helper home.
 - **Migration from logwork-helper:**
   - `lib/legacy-migration.mjs` copies state files once from `~/.logwork-helper`, renaming `.logwork-helper.json` to `.logwork.json`. It writes the marker `.migrated-from-logwork-helper`, never overwrites existing files, and is skipped when a custom home is set.
   - `credential-store.mjs#withLegacyService` reads the old `logwork-helper` service on a miss and copies the value forward. `delete` clears both services.
-  - `reminder-scheduler.mjs` removes the legacy launchd label and Windows task whenever it installs or removes a schedule.
+  - `reminder-scheduler.mjs` removes the legacy launchd label and Windows task whenever it installs or removes a schedule. On Linux it writes `logwork-cli-reminder.{service,timer}` to `~/.config/systemd/user` and runs `systemctl --user`; without a user systemd it fails with a `crontab` line. Notifications use `notify-send` (`lib/os-notification.mjs`).
 - Never log tokens, put them in argv, or write them to state files (`lib/auth-redaction.mjs`). The macOS Keychain write goes through `security -i` on stdin for this reason.
 - Start npm with `lib/npm-command.mjs#npmInvocation`; plain `spawn('npm')` fails on Windows.
 

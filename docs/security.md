@@ -38,7 +38,7 @@ logwork logout
 - Password and 2FA are never stored.
 - Keycloak URLs contain dynamic `state`, `nonce`, `execution`, and `tab_id` values. Do not hardcode or paste them into config.
 - Keycloak access tokens are intermediate only and are not stored.
-- Only the final Resource Optimiser access/refresh token session is stored in the OS credential store: macOS Keychain on macOS, or Windows Credential Manager on Windows.
+- Only the final Resource Optimiser access/refresh token session is stored in the OS credential store: macOS Keychain on macOS, Windows Credential Manager on Windows, or the freedesktop Secret Service (GNOME Keyring, KWallet, KeePassXC) through libsecret's `secret-tool` on Linux. On Linux the value is passed to `secret-tool` on stdin and read back from its stdout, never through argv. There is no plaintext file fallback: without a Secret Service, login fails with install instructions.
 - Auth does not open or read any browser profile.
 
 ## Jira PAT Setup

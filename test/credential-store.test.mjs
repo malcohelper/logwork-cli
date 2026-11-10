@@ -15,14 +15,15 @@ import {
 test('credential store labels supported platforms', () => {
   assert.equal(credentialStoreLabel({ platform: 'darwin' }), 'macOS Keychain');
   assert.equal(credentialStoreLabel({ platform: 'win32' }), 'Windows Credential Manager');
-  assert.equal(credentialStoreLabel({ platform: 'linux' }), 'OS credential store');
+  assert.equal(credentialStoreLabel({ platform: 'linux' }), 'Linux Secret Service (libsecret)');
+  assert.equal(credentialStoreLabel({ platform: 'freebsd' }), 'OS credential store');
 });
 
 test('unsupported credential platform reports a clear error', async () => {
-  const storage = createCredentialTokenStorage({ platform: 'linux' });
+  const storage = createCredentialTokenStorage({ platform: 'freebsd' });
   await assert.rejects(
     storage.get(),
-    /Unsupported operating system.*macOS and Windows/
+    /Unsupported operating system.*macOS, Windows and Linux/
   );
 });
 

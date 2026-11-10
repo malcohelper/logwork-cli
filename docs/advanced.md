@@ -144,12 +144,13 @@ logwork reminder disable
 How the reminder is scheduled:
 - **macOS:** it writes `~/Library/LaunchAgents/sg.vinova.logwork-cli.reminder.plist` and loads it with `launchctl`.
 - **Windows:** it creates the interactive user task `Logwork Reminder` with `schtasks.exe`.
+- **Linux:** it writes `logwork-cli-reminder.service` and `logwork-cli-reminder.timer` to `~/.config/systemd/user` (or `$XDG_CONFIG_HOME/systemd/user`), then runs `systemctl --user daemon-reload` and `systemctl --user enable --now logwork-cli-reminder.timer`. The timer uses `OnCalendar=Mon,Tue,Wed,Thu,Fri *-*-* 17:00:00`; a run missed during suspend fires on resume. Check it with `systemctl --user list-timers`. Without a user systemd (WSL without systemd, containers), `reminder enable` fails and prints the equivalent `crontab -e` line instead.
 
-Both schedulers run `node ~/.logwork-cli/bin/logwork.mjs reminder run --home ~/.logwork-cli`. That command reads credentials from macOS Keychain or Windows Credential Manager when it runs. Enabling or disabling the reminder also removes the old `logwork-helper` schedule (`sg.vinova.logwork-helper.reminder` / `Logwork Helper Reminder`) if one is still present.
+Every scheduler runs `reminder run --home ~/.logwork-cli` through the launcher (`~/.logwork-cli/bin/logwork-launch` on macOS and Linux, a stable `node.exe` plus `bin\logwork.mjs` on Windows). That command reads credentials from macOS Keychain, Windows Credential Manager or the Linux Secret Service when it runs. Enabling or disabling the reminder also removes the old `logwork-helper` schedule (`sg.vinova.logwork-helper.reminder` / `Logwork Helper Reminder`) if one is still present.
 
 Resource Optimiser is incomplete when today's logged hours are lower than booked hours. A day with no RO bookings and no RO logs is treated as not expected. Jira is incomplete when JQL finds no issue with a worklog by `currentUser()` on today's date. Auth or check failures produce an actionable notification without including the underlying API response.
 
-The `test` command sends a sample notification immediately and does not query or write RO/Jira. On macOS, allow notifications when prompted. On Windows, ensure app notifications are enabled for PowerShell because the lightweight WinRT toast is delivered through the built-in PowerShell host.
+The `test` command sends a sample notification immediately and does not query or write RO/Jira. On macOS, allow notifications when prompted. On Windows, ensure app notifications are enabled for PowerShell because the lightweight WinRT toast is delivered through the built-in PowerShell host. On Linux, the notification goes through `notify-send` (package `libnotify-bin` or `libnotify`) to the desktop's notification server.
 
 ## Reconcile Resource Optimiser And Jira
 

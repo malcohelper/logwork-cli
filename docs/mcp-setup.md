@@ -397,7 +397,7 @@ The two applies are intentionally not atomic. `log_work` never writes Jira, and 
 - **Reminder:**
   - `reminder` with `action: "status"` is read-only.
   - `enable` (with optional `time` and `target`), `disable` and `test` need `confirm: true` after approval.
-  - macOS uses launchd and Windows uses Task Scheduler.
+  - macOS uses launchd, Windows uses Task Scheduler and Linux uses a systemd user timer.
   - Reminder tools never accept credentials, scheduler commands or executable paths.
 
 ### Project Mapping
